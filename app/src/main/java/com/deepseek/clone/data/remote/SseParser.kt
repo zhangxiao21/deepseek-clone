@@ -2,8 +2,10 @@ package com.deepseek.clone.data.remote
 
 import com.deepseek.clone.data.model.*
 import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import okhttp3.ResponseBody
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -46,7 +48,12 @@ object SseParser {
         data class Error(val message: String) : Event()
     }
 
-    /** 解析 SSE 字节流。body 由调用方在 finally 中关闭。 */
+    /**
+     * 解析 SSE 字节流。body 由调用方在 finally 中关闭。
+     *
+     * 必须 flowOn(IO)：readLine() 是阻塞式网络读，若让 collector（主线程）执行，
+     * 整个生成期间主线程会被占死 —— UI 无法重组，表现为「发送后无响应 / 全部生成完一次性吐出」。
+     */
     fun parse(body: ResponseBody): Flow<Event> = flow {
         val result = StreamResult()
         BufferedReader(InputStreamReader(body.byteStream(), Charsets.UTF_8)).use { reader ->
@@ -101,5 +108,5 @@ object SseParser {
         if (result.citations.isNotEmpty()) emit(Event.Citations(result.citations))
         if (!result.finished) result.finished = true
         emit(Event.Finished(result))
-    }
+    }.flowOn(Dispatchers.IO)
 }

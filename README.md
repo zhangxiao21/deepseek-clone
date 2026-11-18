@@ -142,7 +142,22 @@ export JAVA_HOME=/path/to/jdk-17
 > - `Repository.sanitizeParts()` 在每次 `buildMessages` 前清洗所有 part（含历史落库的旧脏数据），
 >   保证发往 API 的 part 永远合法。
 
-### 4.4 长期记忆与上下文压缩
+### 4.4 SSE 流式输出
+
+> ⚠️ **「发送后无响应 / 全部生成完才一次性吐出」坑（已修）**：`SseParser.parse` 用
+> `BufferedReader.readLine()` 做**阻塞式网络读**，而 flow 默认在 collector 的协程上下文执行 ——
+> `viewModelScope.launch` 是主线程，于是整个生成期间主线程被占死，Compose 无法重组。
+> 现在 `parse()` 末尾加 `.flowOn(Dispatchers.IO)`，阻塞读在 IO 线程，主线程只负责更新 StateFlow。
+
+- 流式请求头：`Accept: text/event-stream`、`Cache-Control: no-cache`、
+  `Accept-Encoding: identity`（禁用 OkHttp 透明 gzip，避免中间层缓冲整个响应）；
+  `AuthInterceptor` 只在请求未自带 `Accept` 时才补 `application/json`，不再覆盖流式头。
+- `readTimeout(0)` 永不超时，服务端静默时 UI 会永远卡在「生成中」。加两段式看门狗：
+  首个 SSE 事件 60s 未到、或事件中静默超过 120s，主动中断并提示「服务长时间无响应」。
+- `stop()` / 超时会 `close()` 响应体，让 IO 上阻塞的 `readLine()` 立刻抛错退出；
+  收尾用 `withContext(NonCancellable)` 包住，保证已生成的部分内容仍会落库、连接被释放。
+
+### 4.5 长期记忆与上下文压缩
 
 官方 API 无状态，每轮都要把"该让模型知道的东西"重新发一遍。这两项由 `ContextEngine` 负责：
 
@@ -155,7 +170,7 @@ export JAVA_HOME=/path/to/jdk-17
   绝不阻断主对话；压缩结果刻意滞后一轮使用，保证首字不被拖慢
 - 设置 → 记忆与上下文：三个开关（长期记忆 / 上下文压缩 / 显示思维链）+ 记忆查看/编辑/清空
 
-### 4.5 导入 zip
+### 4.6 导入 zip
 
 网页版 `deepseek_data-*.zip`（`manifest.json` 的 `export_format_version:3`）：按 `current_message_id` 沿 `parent_id` 回溯摊平，按 `id` 升序排列（不用 `inserted_at`，非单调），过滤 `CONTENT_FILTER`/失败态。
 

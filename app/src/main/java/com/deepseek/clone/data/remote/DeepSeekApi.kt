@@ -14,6 +14,13 @@ interface DeepSeekApi {
     suspend fun chatCompletions(@Body request: ChatRequest): Response<ChatResponse>
 
     @Streaming
+    // SSE 专用头：声明事件流、禁用 gzip 透明压缩（否则中间层会缓冲整个响应，
+    // 表现为「全部生成完才一次性输出」）
+    @Headers(
+        "Accept: text/event-stream",
+        "Cache-Control: no-cache",
+        "Accept-Encoding: identity"
+    )
     @POST("chat/completions")
     suspend fun chatCompletionsStream(@Body request: ChatRequest): Response<ResponseBody>
 

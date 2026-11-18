@@ -13,12 +13,23 @@ import com.deepseek.clone.data.model.UrlCitation
 import com.deepseek.clone.data.remote.SseParser
 import com.google.gson.Gson
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.ResponseBody
 
 class ChatViewModel(app: Application) : AndroidViewModel(app) {
+    companion object {
+        /** 首个 SSE 事件最长等待时间；超时后主动中断，避免 UI 永远卡在「生成中」 */
+        private const val FIRST_BYTE_TIMEOUT_MS = 60_000L
+        /** 生成过程中两个事件之间的最大静默时间 */
+        private const val STALL_TIMEOUT_MS = 120_000L
+        private const val WATCHDOG_INTERVAL_MS = 10_000L
+    }
     private val repo: com.deepseek.clone.data.repository.Repository =
         (app as DeepSeekApp).services.repository
     private val gson = Gson()
@@ -64,7 +75,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private var collectJob: Job? = null
     private var messagesJob: Job? = null
+    private var watchdogJob: Job? = null
     private var currentSessionId: String? = null
+
+    /** 当前流式响应体：stop / 超时时 close 掉，让 IO 线程上阻塞的 readLine() 立刻抛错退出 */
+    private var streamBody: ResponseBody? = null
+    private var streamStartedAt = 0L
+    private var lastEventAt = 0L
+    private var eventCount = 0
+    /** 用户主动停止或看门狗中断：此时不要把底层 IOException 当错误弹给用户 */
+    private var aborted = false
 
     fun loadSession(sessionId: String) {
         refreshCotVisible()
@@ -203,6 +223,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         existingUserMsgId: Int
     ) {
         _error.value = null
+        aborted = false
         _isGenerating.value = true
         _liveThinking.value = ""
         _liveContent.value = ""
@@ -255,12 +276,38 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     throw IllegalStateException("HTTP ${response.code()}")
                 }
 
+                // 看门狗：readTimeout(0) 表示永不超时，服务端静默时 UI 会永远停在「生成中」。
+                // 这里按「首字节 / 事件间隔」两段式兜底，超时主动关闭连接并给出可见提示。
+                streamBody = response.body()
+                streamStartedAt = System.currentTimeMillis()
+                lastEventAt = streamStartedAt
+                eventCount = 0
+                watchdogJob?.cancel()
+                watchdogJob = launch {
+                    while (true) {
+                        delay(WATCHDOG_INTERVAL_MS)
+                        val now = System.currentTimeMillis()
+                        val timedOut = if (eventCount == 0) {
+                            now - streamStartedAt > FIRST_BYTE_TIMEOUT_MS
+                        } else {
+                            now - lastEventAt > STALL_TIMEOUT_MS
+                        }
+                        if (timedOut) {
+                            _error.value = "服务长时间无响应，已中断（请检查网络后重试）"
+                            stop()
+                            break
+                        }
+                    }
+                }
+
                 collectJob?.cancel()
                 collectJob = launch {
                     var thinkingElapsed: Double? = null
                     val startAt = System.currentTimeMillis()
                     try {
                         flow.collect { ev ->
+                            eventCount++
+                            lastEventAt = System.currentTimeMillis()
                             when (ev) {
                                 is SseParser.Event.ThinkingDelta -> _liveThinking.value += ev.text
                                 is SseParser.Event.ContentDelta -> {
@@ -284,39 +331,49 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             }
                         }
                     } catch (e: Exception) {
-                        Log.e("ChatViewModel", "stream collect", e)
-                        _error.value = e.message ?: "流式接收失败"
+                        // 主动停止 / 超时中断会关闭 body 使 readLine 抛错，不应弹成「流式接收失败」
+                        if (!aborted) {
+                            Log.e("ChatViewModel", "stream collect", e)
+                            _error.value = e.message ?: "流式接收失败"
+                        }
                     } finally {
-                        // 5. 落库助手消息
-                        val answerId = (_messages.value.maxOfOrNull { it.messageId } ?: 1) + 1
                         val content = _liveContent.value
                         val thinking = _liveThinking.value
-                        if (content.isNotEmpty() || thinking.isNotEmpty()) {
-                            repo.upsertMessageLocal(
-                                MessageEntity(
-                                    sessionId = sessionId,
-                                    messageId = answerId,
-                                    parentId = userMsgId,
-                                    role = "assistant",
-                                    content = content,
-                                    thinking = thinking.ifEmpty { null },
-                                    thinkingElapsed = thinkingElapsed,
-                                    searchResultsJson = if (_liveCitations.value.isEmpty()) null
-                                    else gson.toJson(_liveCitations.value),
-                                    modelType = model,
-                                    thinkingEnabled = thinkingEnabled,
-                                    searchEnabled = searchEnabled,
-                                    status = if (_error.value != null) "FAILED" else "FINISHED",
-                                    insertedAt = System.currentTimeMillis() / 1000.0 + 0.001,
-                                    isError = _error.value != null
+                        // stop()/看门狗会取消本协程，收尾必须 NonCancellable，
+                        // 否则落库与连接关闭会被 CancellationException 跳过（部分回复丢失、连接泄漏）。
+                        withContext(NonCancellable) {
+                            // 5. 落库助手消息
+                            val answerId = (_messages.value.maxOfOrNull { it.messageId } ?: 1) + 1
+                            if (content.isNotEmpty() || thinking.isNotEmpty()) {
+                                repo.upsertMessageLocal(
+                                    MessageEntity(
+                                        sessionId = sessionId,
+                                        messageId = answerId,
+                                        parentId = userMsgId,
+                                        role = "assistant",
+                                        content = content,
+                                        thinking = thinking.ifEmpty { null },
+                                        thinkingElapsed = thinkingElapsed,
+                                        searchResultsJson = if (_liveCitations.value.isEmpty()) null
+                                        else gson.toJson(_liveCitations.value),
+                                        modelType = model,
+                                        thinkingEnabled = thinkingEnabled,
+                                        searchEnabled = searchEnabled,
+                                        status = if (_error.value != null) "FAILED" else "FINISHED",
+                                        insertedAt = System.currentTimeMillis() / 1000.0 + 0.001,
+                                        isError = _error.value != null
+                                    )
                                 )
-                            )
+                            }
+                            _isGenerating.value = false
+                            watchdogJob?.cancel()
+                            runCatching { streamBody?.close() }
+                            streamBody = null
                         }
-                        _isGenerating.value = false
-
                         // 6. 后台增量上下文压缩 + 长期记忆提取（失败静默，不阻断）
+                        // 挂在 viewModelScope 上，避免继承已取消的 collectJob
                         if (content.isNotEmpty()) {
-                            launch {
+                            viewModelScope.launch {
                                 runCatching {
                                     repo.context.compressInBackground(sessionId, history)
                                     repo.context.learn(text, content)
@@ -337,8 +394,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 官方 API 无 stop 端点，停止即取消本地收集（HTTP 连接随之关闭） */
+    /** 官方 API 无 stop 端点：取消收集 + 关闭响应体，让 IO 上阻塞的 readLine() 立即退出 */
     fun stop() {
+        aborted = true
+        watchdogJob?.cancel()
+        runCatching { streamBody?.close() }
         collectJob?.cancel()
         _isGenerating.value = false
     }
@@ -357,5 +417,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         super.onCleared()
         messagesJob?.cancel()
         collectJob?.cancel()
+        watchdogJob?.cancel()
+        runCatching { streamBody?.close() }
     }
 }

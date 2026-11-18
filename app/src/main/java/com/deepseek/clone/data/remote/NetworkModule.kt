@@ -18,7 +18,10 @@ class AuthInterceptor(
         val original = chain.request()
         val builder = original.newBuilder()
             .header("User-Agent", profileProvider().userAgent)
-            .header("Accept", "application/json")
+        // 流式请求自带 Accept: text/event-stream，不能被覆盖成 application/json
+        if (original.header("Accept") == null) {
+            builder.header("Accept", "application/json")
+        }
         // 官方接口：Bearer API Key（sk-...）
         apiKeyProvider()?.let { builder.header("Authorization", "Bearer $it") }
         // multipart 自带带 boundary 的 Content-Type，不覆盖
