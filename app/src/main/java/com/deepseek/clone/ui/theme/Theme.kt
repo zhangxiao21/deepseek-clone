@@ -6,9 +6,12 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 
 /** 外观模式：跟随系统 / 浅色 / 深色（持久化在 SecureStore） */
 object ThemeMode {
@@ -160,13 +163,20 @@ private val DarkColors = darkColorScheme(
 @Composable
 fun DeepSeekTheme(
     themeMode: String = ThemeMode.SYSTEM,
+    fontScale: Float = 1.0f,
     content: @Composable () -> Unit
 ) {
     val dark = ThemeMode.isDark(themeMode, isSystemInDarkTheme())
     SideEffect { AppColors.applyDark(dark) }
-    MaterialTheme(
-        colorScheme = if (dark) DarkColors else LightColors,
-        typography = Typography(),
-        content = content
-    )
+    // 只放大 sp 字号（fontScale），保持 dp 尺寸不变，避免布局因缩放溢出
+    val density = LocalDensity.current
+    CompositionLocalProvider(
+        LocalDensity provides Density(density.density, density.fontScale * fontScale)
+    ) {
+        MaterialTheme(
+            colorScheme = if (dark) DarkColors else LightColors,
+            typography = Typography(),
+            content = content
+        )
+    }
 }

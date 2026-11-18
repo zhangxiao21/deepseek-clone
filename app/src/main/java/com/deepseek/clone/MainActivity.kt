@@ -88,7 +88,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var themeMode by remember { mutableStateOf(services.store.themeMode) }
-            DeepSeekTheme(themeMode = themeMode) {
+            var fontScale by remember { mutableStateOf(services.store.fontScale) }
+            DeepSeekTheme(themeMode = themeMode, fontScale = fontScale) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     AppNavigation(
                         application = application,
@@ -96,6 +97,11 @@ class MainActivity : ComponentActivity() {
                         repository = services.repository,
                         zipManager = services.zipManager,
                         themeMode = themeMode,
+                        fontScale = fontScale,
+                        onFontScaleChange = { scale ->
+                            services.store.fontScale = scale
+                            fontScale = scale
+                        },
                         onThemeModeChange = { mode ->
                             services.store.themeMode = mode
                             themeMode = mode
@@ -131,14 +137,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** 拉起系统/厂商语音识别界面（国内 ROM 上比 Google 在线服务可靠得多） */
+    private fun launchSystemVoice() {
+        try {
+            voiceFallback.launch(speechHelper.buildIntent())
+            voiceListening = true
+        } catch (e: Exception) {
+            voiceListening = false
+            Toast.makeText(
+                this,
+                "此设备没有可用的语音识别服务，可试试输入法的麦克风或安装离线语音包",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     private fun startListening(callback: (String) -> Unit) {
-        if (!speechHelper.isAvailable()) {
-            try {
-                voiceFallback.launch(speechHelper.buildIntent())
-                voiceListening = true
-            } catch (e: Exception) {
-                Toast.makeText(this, "此设备没有可用的语音识别服务", Toast.LENGTH_SHORT).show()
-            }
+        // 没有设备端离线识别包时，直接用系统语音界面，跳过必然报 ERROR_NETWORK 的在线服务
+        if (!speechHelper.hasOnDeviceRecognition()) {
+            launchSystemVoice()
             return
         }
         speechHelper.startListening(
@@ -150,12 +167,14 @@ class MainActivity : ComponentActivity() {
                 voiceListening = false
                 Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             },
-            onState = { listening -> voiceListening = listening }
+            onState = { listening -> voiceListening = listening },
+            onNeedFallback = { launchSystemVoice() }
         )
     }
 
     private fun stopVoice() {
-        speechHelper.stopListening()
+        if (speechHelper.hasOnDeviceRecognition()) speechHelper.stopListening()
+        else voiceListening = false
     }
 
     /** 启动系统相机拍照（无需 CAMERA 权限，走 ACTION_IMAGE_CAPTURE 的 TakePicture 契约） */
@@ -256,6 +275,8 @@ private fun AppNavigation(
     repository: com.deepseek.clone.data.repository.Repository,
     zipManager: com.deepseek.clone.data.importer.ChatZipManager,
     themeMode: String,
+    fontScale: Float,
+    onFontScaleChange: (Float) -> Unit,
     onThemeModeChange: (String) -> Unit,
     onAttachFile: () -> Unit,
     onImagesSelected: (List<Uri>) -> Unit,
@@ -266,7 +287,8 @@ private fun AppNavigation(
     onViewModelReady: (ChatViewModel) -> Unit
 ) {
     var loggedIn by remember { mutableStateOf(store.isLoggedIn) }
-    var screen by remember { mutableStateOf<Screen>(Screen.Sessions) }
+    // 官方默认首页是一个全新的空对话，而不是会话列表
+    var screen by remember { mutableStateOf<Screen>(Screen.Chat) }
     var chatSessionId by remember { mutableStateOf<String?>(null) }
     var chatTitle by remember { mutableStateOf("新对话") }
     var showPhotoPicker by remember { mutableStateOf(false) }
@@ -275,6 +297,15 @@ private fun AppNavigation(
 
     LaunchedEffect(chatViewModel) { onViewModelReady(chatViewModel) }
 
+    // 进入 App / 登录后自动开一个新对话作为首页
+    LaunchedEffect(loggedIn, chatSessionId) {
+        if (loggedIn && chatSessionId == null) {
+            chatTitle = "新对话"
+            chatSessionId = repository.createLocalSession("新对话", store.defaultModelType)
+            screen = Screen.Chat
+        }
+    }
+
     // 显示鉴权错误（API Key 失效/余额不足）
     val app = application as DeepSeekApp
     app.authErrorMessage?.let { msg ->
@@ -282,7 +313,8 @@ private fun AppNavigation(
             Toast.makeText(application, msg, Toast.LENGTH_LONG).show()
             app.authErrorMessage = null
             loggedIn = false
-            screen = Screen.Sessions
+            chatSessionId = null
+            screen = Screen.Chat
         }
     }
 
@@ -301,7 +333,8 @@ private fun AppNavigation(
             repository = repository,
             onLoginSuccess = {
                 loggedIn = true
-                screen = Screen.Sessions
+                chatSessionId = null
+                screen = Screen.Chat
             }
         )
         return
@@ -346,12 +379,15 @@ private fun AppNavigation(
                     zipManager = zipManager,
                     repository = repository,
                     themeMode = themeMode,
+                    fontScale = fontScale,
+                    onFontScaleChange = onFontScaleChange,
                     onThemeModeChange = onThemeModeChange,
                     onBack = { screen = Screen.Sessions },
                     onLogout = {
                         repository.clearApiKey()
                         loggedIn = false
-                        screen = Screen.Sessions
+                        chatSessionId = null
+                        screen = Screen.Chat
                     }
                 )
             }

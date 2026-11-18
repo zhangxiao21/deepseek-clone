@@ -168,6 +168,11 @@ class SecureStore(context: Context) {
         get() = prefs.getString(KEY_THEME, "system") ?: "system"
         set(value) = prefs.edit().putString(KEY_THEME, value).apply()
 
+    /** 全局字体缩放（1.0 标准 / 1.1 大 / 1.2 超大），通过 LocalDensity.fontScale 生效 */
+    var fontScale: Float
+        get() = prefs.getFloat(KEY_FONT_SCALE, 1.0f).coerceIn(0.9f, 1.4f)
+        set(value) = prefs.edit().putFloat(KEY_FONT_SCALE, value.coerceIn(0.9f, 1.4f)).apply()
+
     // ---------- 长期记忆 / 上下文压缩 / CoT ----------
 
     var memoryEnabled: Boolean
@@ -200,6 +205,7 @@ class SecureStore(context: Context) {
         val keepCompression = compressionEnabled
         val keepCot = cotVisible
         val keepModel = defaultModelType
+        val keepFontScale = fontScale
         prefs.edit().clear().apply()
         themeMode = keepTheme
         memoryEnabled = keepMemoryEnabled
@@ -207,6 +213,7 @@ class SecureStore(context: Context) {
         compressionEnabled = keepCompression
         cotVisible = keepCot
         defaultModelType = keepModel
+        fontScale = keepFontScale
     }
 
     companion object {
@@ -217,6 +224,7 @@ class SecureStore(context: Context) {
         private const val LEGACY_KEY_ID = "key-default"
         private const val KEY_MODEL = "default_model"
         private const val KEY_THEME = "theme_mode"
+        private const val KEY_FONT_SCALE = "font_scale"
         private const val KEY_MEMORY_ENABLED = "memory_enabled"
         private const val KEY_MEMORY_FACTS = "memory_facts"
         private const val KEY_COMPRESSION_ENABLED = "compression_enabled"
