@@ -10,7 +10,7 @@ stages:
   - step: build@android
     name: ""
     displayName: Android 构建
-    jdkVersion: "11"
+    jdkVersion: "17"
     gradleVersion: "7.6"
     buildToolsVersion: 35.0.1
     ndkVersion: 28.2.13676358
