@@ -55,7 +55,7 @@ export JAVA_HOME=/path/to/jdk-17
 |---|---|---|
 | 核心对话 | 流式输出、深度思考开关、推理强度、模型切换、停止生成、Markdown 渲染、思考折叠 | `POST /chat/completions` (`stream:true`, `thinking.type`, `reasoning_effort`)，思考内容在 `reasoning_content` |
 | 联网搜索 | 内置联网工具，自动搜索并附引用；支持边思考边检索 | `tools: [{type:deepseek_web_search}, {type:deepseek_read_url}]`，引用在 `annotations`，过程在 `server_tool_event` |
-| 会话管理 | 列表/搜索/重命名/置顶/删除；自动用 API 返回的标题命名 | 本地 Room + `title.enabled` |
+| 会话管理 | 列表/搜索/重命名/置顶/删除；自动用 API 返回的标题命名 | 本地 JSON 存储 + `title.enabled` |
 | 导入导出 | 导入网页版 `deepseek_data-*.zip`，按 `parent_id` 摊平；导出本地会话 | `ChatZipManager` |
 | 文件/图片 | 图片上传（vision）、PDF/Word/PPT 解析、多模态消息 | Files API `POST /files` + `messages[].content` 多模态数组 |
 | 语音 | 语音输入（系统 SpeechRecognizer）、朗读（TextToSpeech） | `SpeechHelper`、`ReadAloudHelper` |
@@ -66,7 +66,9 @@ export JAVA_HOME=/path/to/jdk-17
 - `deepseek-flash`：V4.1 Flash，快速，**支持图片输入**
 - `deepseek-v4-pro`：V4 Pro，强推理
 
-> 官方 API 是无状态的：不提供服务端会话对象。本 App 把会话历史存在本地 Room，每次请求按 OpenAI `messages` 数组回传（最近 40 条）。
+> 官方 API 是无状态的：不提供服务端会话对象。本 App 把会话历史存在本地（SharedPreferences + Gson JSON），每次请求按 OpenAI `messages` 数组回传（最近 40 条）。
+>
+> 本地存储刻意不用 Room：其 kapt 注解处理在部分离线构建环境会因注解解析失败（`NonExistentClass`）导致编译中断。改用纯 Kotlin 实现后无任何注解处理器，编译链更简单稳定。
 
 ---
 
@@ -137,7 +139,7 @@ DeepSeekApp/
     │   ├── data/
     │   │   ├── model/Dtos.kt                   # OpenAI 兼容 DTO
     │   │   ├── remote/                         # Retrofit/OkHttp/SSE
-    │   │   ├── local/                          # Room/Keystore
+    │   │   ├── local/                          # JSON存储/Keystore
     │   │   ├── importer/ChatZipManager.kt      # zip 导入导出
     │   │   └── repository/Repository.kt        # 业务编排
     │   └── ui/                                 # Compose 界面

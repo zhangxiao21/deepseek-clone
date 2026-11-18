@@ -1,9 +1,8 @@
 package com.deepseek.clone
 
 import android.app.Application
-import androidx.room.Room
 import com.deepseek.clone.data.importer.ChatZipManager
-import com.deepseek.clone.data.local.AppDatabase
+import com.deepseek.clone.data.local.ChatDao
 import com.deepseek.clone.data.local.SecureStore
 import com.deepseek.clone.data.remote.NetworkModule
 import com.deepseek.clone.data.repository.Repository
@@ -11,10 +10,7 @@ import com.deepseek.clone.data.repository.Repository
 /** 简单的服务定位器（工程规模无需引入 Hilt） */
 class ServiceLocator(app: Application) {
     val store = SecureStore(app)
-    val db = Room.databaseBuilder(app, AppDatabase::class.java, "deepseek.db")
-        .fallbackToDestructiveMigration()
-        .build()
-    val dao = db.chatDao()
+    val dao = ChatDao(app)
 
     lateinit var repository: Repository
         private set
