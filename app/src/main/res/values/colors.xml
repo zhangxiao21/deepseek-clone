@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DeepSeek 品牌蓝 + 浅色背景，贴近官方 App -->
+    <color name="primary">#4D6BFE</color>
+    <color name="primary_dark">#3A54D6</color>
+    <color name="primary_light">#EBEEFF</color>
+    <color name="accent">#4D6BFE</color>
+    <color name="background">#FFFFFF</color>
+    <color name="surface">#F7F8FA</color>
+    <color name="surface_variant">#EFF1F5</color>
+    <color name="bubble_user">#4D6BFE</color>
+    <color name="bubble_ai">#F4F5F7</color>
+    <color name="text_primary">#1A1A1A</color>
+    <color name="text_secondary">#6B7280</color>
+    <color name="divider">#E9EAEC</color>
+    <color name="error">#E5484D</color>
+    <color name="success">#30A46C</color>
+    <color name="thinking_bg">#F7F8FA</color>
+</resources>

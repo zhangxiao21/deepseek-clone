@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DeepSeek</string>
+    <string name="app_name_full">DeepSeek 复刻版</string>
+
+    <!-- 登录 -->
+    <string name="login_title">登录 DeepSeek 账号</string>
+    <string name="login_subtitle">在网页中完成登录，App 将自动获取登录态</string>
+    <string name="login_manual">手动粘贴 Token</string>
+    <string name="login_manual_hint">从 chat.deepseek.com 的 localStorage.userToken 复制</string>
+    <string name="login_button">登录</string>
+    <string name="login_verifying">正在验证账号…</string>
+    <string name="login_success">登录成功</string>
+    <string name="login_failed">登录失败：%1$s</string>
+    <string name="logout">退出登录</string>
+    <string name="logout_confirm">确定退出登录？将清除本地保存的登录态。</string>
+
+    <!-- 主界面 -->
+    <string name="new_chat">开启新对话</string>
+    <string name="chat_hint">给 DeepSeek 发送消息</string>
+    <string name="send">发送</string>
+    <string name="stop">停止生成</string>
+    <string name="deep_thinking">深度思考 (R1)</string>
+    <string name="web_search">联网搜索</string>
+    <string name="thinking">思考中…</string>
+    <string name="thinking_elapsed">已思考 %1$s 秒</string>
+    <string name="searching">正在搜索网页…</string>
+    <string name="search_results">找到 %1$d 个网页</string>
+    <string name="regenerate">重新生成</string>
+    <string name="copy">复制</string>
+    <string name="copied">已复制</string>
+    <string name="edit">编辑</string>
+    <string name="delete">删除</string>
+    <string name="rename">重命名</string>
+    <string name="pin">置顶</string>
+    <string name="unpin">取消置顶</string>
+
+    <!-- 会话 -->
+    <string name="sessions">对话历史</string>
+    <string name="search_sessions">搜索对话</string>
+    <string name="no_sessions">还没有对话</string>
+    <string name="delete_session_confirm">确定删除该对话？</string>
+    <string name="today">今天</string>
+    <string name="yesterday">昨天</string>
+    <string name="days_ago">%1$d 天前</string>
+
+    <!-- 设置 -->
+    <string name="settings">设置</string>
+    <string name="account">账号</string>
+    <string name="model_settings">模型设置</string>
+    <string name="default_model">默认模型</string>
+    <string name="api_headers">接口版本头（高级）</string>
+    <string name="api_headers_desc">前端发版后若接口报错，可在此更新 X-Client-Version 等值</string>
+    <string name="import_chat">导入对话</string>
+    <string name="import_chat_desc">导入网页版导出的 deepseek_data-*.zip</string>
+    <string name="export_chat">导出对话</string>
+    <string name="about">关于</string>
+    <string name="about_text">非官方复刻客户端，仅供学习研究。通过网页版登录态调用 DeepSeek 服务，请遵守服务条款。私有接口可能变动，字段失配时请更新版本头。</string>
+
+    <!-- 导入导出 -->
+    <string name="importing">正在导入…</string>
+    <string name="import_success">成功导入 %1$d 个对话</string>
+    <string name="import_failed">导入失败：%1$s</string>
+    <string name="export_success">已导出到下载目录</string>
+    <string name="choose_zip">选择 zip 文件</string>
+    <string name="import_progress">正在导入 %1$d / %2$d</string>
+
+    <!-- 文件与语音 -->
+    <string name="attach_file">添加文件</string>
+    <string name="take_photo">拍照</string>
+    <string name="choose_image">选择图片</string>
+    <string name="voice_input">语音输入</string>
+    <string name="listening">正在聆听…</string>
+    <string name="speech_not_available">设备不支持语音识别</string>
+    <string name="uploading">正在上传 %1$s…</string>
+    <string name="file_uploaded">已上传：%1$s</string>
+
+    <!-- 通用 -->
+    <string name="ok">确定</string>
+    <string name="cancel">取消</string>
+    <string name="retry">重试</string>
+    <string name="error">错误</string>
+    <string name="loading">加载中…</string>
+    <string name="empty_hint">输入消息开始对话</string>
+    <string name="message_too_long">内容超出长度限制</string>
+    <string name="rate_limited">请求过于频繁，请稍后再试</string>
+    <string name="token_expired">登录态已失效，请重新登录</string>
+    <string name="network_error">网络连接失败</string>
+</resources>

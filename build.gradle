@@ -1,0 +1,25 @@
+// 顶层构建：AGP 7.2.2 与 Gradle 7.3.3 严格匹配
+buildscript {
+    ext.kotlin_version = '1.7.10'
+    ext.compose_version = '1.2.1'
+    ext.compose_compiler_version = '1.2.1'
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:7.2.2'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
