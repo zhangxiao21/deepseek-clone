@@ -5,6 +5,8 @@ plugins {
 }
 
 android {
+    // AGP 7.2+ 要求在 build.gradle 显式声明 namespace（生成 R/BuildConfig 用）
+    namespace 'com.deepseek.clone'
     compileSdkVersion 33
 
     defaultConfig {
