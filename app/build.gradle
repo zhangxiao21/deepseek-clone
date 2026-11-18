@@ -70,10 +70,8 @@ dependencies {
     debugImplementation "androidx.compose.ui:ui-tooling:${rootProject.ext.compose_version}"
     debugImplementation "androidx.compose.ui:ui-test-manifest:${rootProject.ext.compose_version}"
 
-    // Navigation
-    implementation 'androidx.navigation:navigation-compose:2.5.2'
+    // Navigation（自研 sealed 状态机导航，无需 navigation-compose）
     implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.5.1'
-    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.5.1'
 
     // Network
     implementation 'com.squareup.okhttp3:okhttp:4.10.0'
@@ -95,9 +93,6 @@ dependencies {
     implementation 'io.coil-kt:coil-compose:2.2.2'
 
     // Markdown 渲染：自研轻量实现（ui/chat/MarkdownText.kt），零外部依赖
-
-    // WebView
-    implementation 'androidx.webkit:webkit:1.5.1'
 
     // Tests
     testImplementation 'junit:junit:4.13.2'
