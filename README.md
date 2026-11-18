@@ -203,7 +203,6 @@ DeepSeekApp/
 
 私有接口时代的 PoW 计算（`DeepSeekPow.kt`）、网页版流式接口（`StreamApi.kt`）及 Room/kapt 注解处理已彻底移除；登录页已改为官方 API Key 输入。
 
-调研详情见工程外层 `deepseek-api-research.md`（接口清单、字段表、来源 URL；其中私有接口部分仅作背景，本 App 用的是官方 API）。
 
 ---
 
