@@ -15,6 +15,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.deepseek.clone.data.local.SecureStore
 import com.deepseek.clone.data.model.ContentPart
 import com.deepseek.clone.ui.chat.ChatScreen
@@ -28,13 +29,14 @@ import com.deepseek.clone.ui.theme.ThemeMode
 import com.deepseek.clone.util.FileHelper
 import com.deepseek.clone.util.SpeechHelper
 import kotlinx.coroutines.launch
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var speechHelper: SpeechHelper
     private var currentVoiceCallback: ((String) -> Unit)? = null
-    private var onFileUploaded: ((ContentPart) -> Unit)? = null
     private var chatViewModelRef: ChatViewModel? = null
+    private var cameraFile: File? = null
 
     private val requestAudio = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -43,15 +45,23 @@ class MainActivity : ComponentActivity() {
         else Toast.makeText(this, "需要麦克风权限才能语音输入", Toast.LENGTH_SHORT).show()
     }
 
-    // 图片选择：走 vision，purpose=user_data
+    // 图片选择：走 vision，purpose=user_data（按文件扩展名自动判断）
     private val imagePicker = registerForActivityResult(
         ActivityResultContracts.GetContent()
-    ) { uri -> uri?.let { uploadFile(it, isImage = true) } }
+    ) { uri -> uri?.let { uploadFile(it) } }
 
     // 文件选择：文档走 rich_layout_recognition
     private val filePicker = registerForActivityResult(
         ActivityResultContracts.GetContent()
-    ) { uri -> uri?.let { uploadFile(it, isImage = false) } }
+    ) { uri -> uri?.let { uploadFile(it) } }
+
+    // 拍照：输出到 FileProvider 授权的缓存文件，拍完走与图片相同的上传链路
+    private val takePicture = registerForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) cameraFile?.let { uploadCameraFile(it) }
+        cameraFile = null
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,6 +90,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onAttachFile = { filePicker.launch("*/*") },
                         onPickImage = { imagePicker.launch("image/*") },
+                        onTakePhoto = { launchCamera() },
                         onVoiceInput = { cb -> requestVoice(cb) },
                         onViewModelReady = { chatViewModelRef = it }
                     )
@@ -106,36 +117,60 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    /** 用官方 Files API 上传，成功后把 ContentPart 加入待发送附件 */
-    private fun uploadFile(uri: Uri, isImage: Boolean) {
-        Toast.makeText(this, "正在上传…", Toast.LENGTH_SHORT).show()
+    /** 启动系统相机拍照（无需 CAMERA 权限，走 ACTION_IMAGE_CAPTURE 的 TakePicture 契约） */
+    private fun launchCamera() {
+        try {
+            val photo = File(cacheDir, "camera_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", photo)
+            cameraFile = photo
+            takePicture.launch(uri)
+        } catch (e: Exception) {
+            Toast.makeText(this, "无法启动相机：${e.message}", Toast.LENGTH_SHORT).show()
+            cameraFile = null
+        }
+    }
+
+    /** 拍照直传：已持有本地 File，无需再经 content:// 复制，保证 .jpg 扩展名与正确 MIME */
+    private fun uploadCameraFile(file: File) {
+        Thread { uploadFileInternal(file) }.start()
+    }
+
+    /**
+     * 用官方 Files API 上传，成功后把 ContentPart 加入待发送附件。
+     *
+     * 关键（HTTP 400 根因）：引用已上传文件时，content part 只能带 type + file_id，
+     * 绝不能同时带 filename —— 官方 API 报
+     * "file cannot have filename when file_id is present"。
+     * 文件名只用于本地 UI 展示，通过 addPendingPart(part, name) 单独传入，不进请求体。
+     */
+    private fun uploadFile(uri: Uri) {
         Thread {
             val file = FileHelper.copyUriToCache(this, uri)
-            if (file == null) {
+            if (file == null || !file.exists()) {
                 runOnUiThread { Toast.makeText(this, "读取文件失败", Toast.LENGTH_SHORT).show() }
                 return@Thread
             }
-            val repo = (application as DeepSeekApp).services.repository
-            val purpose = repo.purposeFor(file)
-            val result = kotlinx.coroutines.runBlocking { repo.uploadFile(file, purpose) }
-            runOnUiThread {
-                result.fold(
-                    onSuccess = { fileId ->
-                        val part = if (isImage) {
-                            ContentPart(type = "file", fileId = fileId, filename = file.name)
-                        } else {
-                            ContentPart(type = "file", fileId = fileId, filename = file.name)
-                        }
-                        chatViewModelRef?.addPendingPart(part)
-                        onFileUploaded?.invoke(part)
-                        Toast.makeText(this, "已添加：${file.name}", Toast.LENGTH_SHORT).show()
-                    },
-                    onFailure = { e ->
-                        Toast.makeText(this, "上传失败：${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                )
-            }
+            uploadFileInternal(file)
         }.start()
+    }
+
+    private fun uploadFileInternal(file: File) {
+        runOnUiThread { Toast.makeText(this, "正在上传…", Toast.LENGTH_SHORT).show() }
+        val repo = (application as DeepSeekApp).services.repository
+        val purpose = repo.purposeFor(file)
+        val result = kotlinx.coroutines.runBlocking { repo.uploadFile(file, purpose) }
+        runOnUiThread {
+            result.fold(
+                onSuccess = { fileId ->
+                    val part = ContentPart(type = "file", fileId = fileId)
+                    chatViewModelRef?.addPendingPart(part, file.name)
+                    Toast.makeText(this, "已添加：${file.name}", Toast.LENGTH_SHORT).show()
+                },
+                onFailure = { e ->
+                    Toast.makeText(this, "上传失败：${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
     }
 
     override fun onDestroy() {
@@ -155,6 +190,7 @@ private fun AppNavigation(
     onThemeModeChange: (String) -> Unit,
     onAttachFile: () -> Unit,
     onPickImage: () -> Unit,
+    onTakePhoto: () -> Unit,
     onVoiceInput: ((String) -> Unit) -> Unit,
     onViewModelReady: (ChatViewModel) -> Unit
 ) {
@@ -219,6 +255,7 @@ private fun AppNavigation(
                     onBack = { screen = Screen.Sessions },
                     onAttachFile = onAttachFile,
                     onPickImage = onPickImage,
+                    onTakePhoto = onTakePhoto,
                     onVoiceInput = onVoiceInput
                 )
             }
@@ -227,6 +264,7 @@ private fun AppNavigation(
             SettingsScreen(
                 store = store,
                 zipManager = zipManager,
+                repository = repository,
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,
                 onBack = { screen = Screen.Sessions },

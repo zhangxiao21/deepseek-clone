@@ -18,7 +18,7 @@ import java.io.File
 
 /**
  * 业务编排：基于 DeepSeek 官方开放 API。
- * 会话历史保存在本地 Room，每次请求把该会话的消息按 OpenAI messages 格式发给 API
+ * 会话历史保存在本地，每次请求把该会话的消息按 OpenAI messages 格式发给 API
  * （官方 API 无状态，不提供服务端会话）。
  */
 class Repository(
@@ -27,6 +27,9 @@ class Repository(
     private val store: SecureStore
 ) {
     private val gson = Gson()
+
+    /** 长期记忆 + 上下文压缩引擎 */
+    val context = ContextEngine(api, store, dao)
 
     // ---------- 密钥 ----------
 
@@ -69,8 +72,18 @@ class Repository(
             id
         }
 
+    /** 用户在会话列表手动重命名：置 titleEdited，此后不再被自动标题覆盖 */
     suspend fun renameSession(id: String, title: String) = withContext(Dispatchers.IO) {
-        dao.updateTitle(id, title)
+        dao.updateTitle(id, title, manual = true)
+    }
+
+    /** 服务端自动生成的标题：仅当会话从未被手动重命名过时生效 */
+    suspend fun applyAutoTitle(id: String, title: String) = withContext(Dispatchers.IO) {
+        val clean = title.trim().take(60)
+        if (clean.isEmpty()) return@withContext
+        val s = dao.getSession(id) ?: return@withContext
+        if (s.titleEdited) return@withContext
+        dao.updateTitle(id, clean, manual = false)
     }
 
     suspend fun setPinned(id: String, pinned: Boolean) = withContext(Dispatchers.IO) {
@@ -102,8 +115,28 @@ class Repository(
     // ---------- 发送消息（官方 OpenAI 兼容） ----------
 
     /**
-     * 构造 messages 数组并流式请求。
-     * @param history 当前会话的历史消息（不含本次 user 消息）
+     * 把 content part 规范化，避免官方 API 报
+     * "file cannot have filename when file_id is present"。
+     *
+     * 规则：引用已上传文件（file_id）时，content part 只能有 type + file_id，
+     * filename / file_data / text / image_url 全部不能带。历史消息里若存过旧的
+     * 带 filename 的 part（旧版本 APK 落库），这里也一并清洗，保证向下兼容。
+     */
+    fun sanitizeParts(parts: List<ContentPart>): List<ContentPart> = parts.mapNotNull { p ->
+        when {
+            !p.fileId.isNullOrBlank() -> ContentPart(type = "file", fileId = p.fileId)
+            p.type == "text" && !p.text.isNullOrBlank() -> ContentPart(type = "text", text = p.text)
+            p.type == "image_url" && p.imageUrl != null -> ContentPart(type = "image_url", imageUrl = p.imageUrl)
+            p.type == "file" && !p.fileData.isNullOrBlank() ->
+                ContentPart(type = "file", fileData = p.fileData, filename = p.filename ?: "attachment")
+            else -> null
+        }
+    }
+
+    /**
+     * 构造 messages 数组。
+     * @param history 已经是「压缩后摘要 + 需要回传的近期历史」处理过的结果
+     * @param contextSummary 较早轮次的压缩摘要，注入 system（与长期记忆一起由 ContextEngine 处理）
      */
     fun buildMessages(
         systemPrompt: String,
@@ -115,14 +148,13 @@ class Repository(
         if (systemPrompt.isNotBlank()) {
             list.add(ChatMessage("system", systemPrompt))
         }
-        for (m in history.takeLast(40)) {   // 控制上下文长度
+        for (m in history) {
             when (m.role) {
                 "user" -> {
-                    val parts = parseContentParts(m.fileRefsJson)
+                    val parts = parseContentParts(m.fileRefsJson)?.let { sanitizeParts(it) }
                     if (parts.isNullOrEmpty()) {
                         list.add(ChatMessage("user", m.content))
                     } else {
-                        // 文本 + 图片/文件 part
                         val all = mutableListOf<ContentPart>()
                         if (m.content.isNotBlank()) all.add(ContentPart("text", text = m.content))
                         all.addAll(parts)
@@ -130,15 +162,16 @@ class Repository(
                     }
                 }
                 "assistant" -> {
-                    // 官方 API 接受 reasoning_content 回传以维持思考上下文
+                    // 正文回传即可；thinking(CoT) 属于推理过程，不回传给 API
                     list.add(ChatMessage("assistant", m.content))
                 }
             }
         }
-        if (!userParts.isNullOrEmpty()) {
+        val cleanParts = userParts?.let { sanitizeParts(it) }
+        if (!cleanParts.isNullOrEmpty()) {
             val all = mutableListOf<ContentPart>()
             if (userText.isNotBlank()) all.add(ContentPart("text", text = userText))
-            all.addAll(userParts)
+            all.addAll(cleanParts)
             list.add(ChatMessage("user", all))
         } else {
             list.add(ChatMessage("user", userText))
@@ -146,13 +179,18 @@ class Repository(
         return list
     }
 
-    /** 构造官方请求体 */
+    /**
+     * 构造官方请求体。
+     * @param autoTitle 仅当会话未被手动重命名、且是首轮时才为 true；
+     *                  否则不向服务端请求标题，服务端就不会每轮返回标题事件覆盖用户的命名。
+     */
     fun buildRequest(
         model: String,
         messages: List<ChatMessage>,
         thinkingEnabled: Boolean,
         searchEnabled: Boolean,
-        effort: String = ApiConfig.EFFORT_HIGH
+        effort: String = ApiConfig.EFFORT_HIGH,
+        autoTitle: Boolean = false
     ): ChatRequest {
         val tools = if (searchEnabled) {
             listOf(
@@ -168,7 +206,7 @@ class Repository(
             thinking = Thinking(if (thinkingEnabled) ApiConfig.THINK_ENABLED else ApiConfig.THINK_DISABLED),
             reasoningEffort = if (thinkingEnabled) effort else null,
             tools = tools,
-            title = TitleOption(true)
+            title = if (autoTitle) TitleOption(true) else null
         )
     }
 
@@ -230,6 +268,18 @@ class Repository(
         return try {
             gson.fromJson(json, object : TypeToken<List<UrlCitation>>() {}.type) ?: emptyList()
         } catch (_: Exception) { emptyList() }
+    }
+
+    /** 附件名列表（仅本地 UI 展示，绝不进入 API 请求） */
+    fun parseAttachmentNames(json: String?): List<String> {
+        if (json.isNullOrBlank()) return emptyList()
+        return try {
+            gson.fromJson<List<String>>(json, object : TypeToken<List<String>>() {}.type) ?: emptyList()
+        } catch (_: Exception) { emptyList() }
+    }
+
+    suspend fun deleteMessage(uid: Long) = withContext(Dispatchers.IO) {
+        dao.deleteMessage(uid)
     }
 
     suspend fun clearMessages(sessionId: String) = withContext(Dispatchers.IO) {

@@ -25,7 +25,13 @@ data class SessionEntity(
     val updatedAt: Long,
     val pinned: Boolean = false,
     val modelType: String = "default",
-    val source: String = "local"
+    val source: String = "local",
+    /** 用户手动重命名过：置 true 后服务端自动标题不再覆盖 */
+    val titleEdited: Boolean = false,
+    /** 上下文压缩：较早轮次的摘要，随会话持久化，避免每轮重复压缩 */
+    val contextSummary: String? = null,
+    /** 摘要已覆盖到的最大 messageId，用于增量压缩 */
+    val summaryUpToMessageId: Int = 0
 )
 
 data class MessageEntity(
@@ -44,6 +50,8 @@ data class MessageEntity(
     val status: String = "FINISHED",
     val insertedAt: Double = 0.0,
     val fileRefsJson: String? = null,
+    /** 附件名列表（JSON），仅本地 UI 展示用，绝不发给 API */
+    val attachmentNamesJson: String? = null,
     val isError: Boolean = false
 )
 
@@ -104,9 +112,29 @@ class ChatDao(context: Context) {
         saveSessions()
     }
 
-    suspend fun updateTitle(id: String, title: String) = synchronized(lock) {
+    /**
+     * @param manual true = 用户在会话列表手动重命名（会永久禁止自动标题）
+     *                false = 服务端自动生成的标题（不设置 titleEdited 标志）
+     */
+    suspend fun updateTitle(id: String, title: String, manual: Boolean = false) = synchronized(lock) {
         val idx = sessions.indexOfFirst { it.id == id }
-        if (idx >= 0) sessions[idx] = sessions[idx].copy(title = title)
+        if (idx >= 0) {
+            sessions[idx] = sessions[idx].copy(
+                title = title,
+                titleEdited = if (manual) true else sessions[idx].titleEdited,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+        saveSessions()
+    }
+
+    /** 缓存上下文压缩摘要（增量压缩用） */
+    suspend fun updateSummary(id: String, summary: String?, upToMessageId: Int) = synchronized(lock) {
+        val idx = sessions.indexOfFirst { it.id == id }
+        if (idx >= 0) sessions[idx] = sessions[idx].copy(
+            contextSummary = summary,
+            summaryUpToMessageId = upToMessageId
+        )
         saveSessions()
     }
 
@@ -150,6 +178,12 @@ class ChatDao(context: Context) {
     suspend fun updateMessage(message: MessageEntity) = synchronized(lock) {
         val idx = messages.indexOfFirst { it.uid == message.uid }
         if (idx >= 0) messages[idx] = message
+        saveMessages()
+    }
+
+    /** 按 uid 删除单条消息（重新生成时删除最后一条助手回复） */
+    suspend fun deleteMessage(uid: Long) = synchronized(lock) {
+        messages.removeAll { it.uid == uid }
         saveMessages()
     }
 

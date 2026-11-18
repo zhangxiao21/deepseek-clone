@@ -25,9 +25,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.deepseek.clone.R
-import com.deepseek.clone.core.ApiConfig
 import com.deepseek.clone.core.ModelOption
 import com.deepseek.clone.data.local.MessageEntity
+import com.deepseek.clone.data.model.ContentPart
 import com.deepseek.clone.data.model.ServerToolEvent
 import com.deepseek.clone.data.model.UrlCitation
 import com.deepseek.clone.ui.theme.AppColors
@@ -41,6 +41,7 @@ fun ChatScreen(
     onBack: () -> Unit,
     onAttachFile: () -> Unit,
     onPickImage: () -> Unit,
+    onTakePhoto: () -> Unit,
     onVoiceInput: (callback: (String) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
@@ -52,19 +53,39 @@ fun ChatScreen(
     val citations by viewModel.liveCitations.collectAsState()
     val error by viewModel.error.collectAsState()
     val model by viewModel.currentModel.collectAsState()
+    val vmTitle by viewModel.sessionTitle.collectAsState()
+    val cotVisible by viewModel.cotVisible.collectAsState()
+    val pendingParts by viewModel.pendingParts.collectAsState()
+    val pendingNames by viewModel.pendingNames.collectAsState()
 
     var input by remember { mutableStateOf("") }
     var thinkingEnabled by remember { mutableStateOf(true) }
     var searchEnabled by remember { mutableStateOf(false) }
     var showModelMenu by remember { mutableStateOf(false) }
-    var pendingCount by remember { mutableStateOf(viewModel.getPendingParts().size) }
+    var showRename by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
+    val title = vmTitle.ifBlank { sessionTitle }
+
     LaunchedEffect(sessionId) { viewModel.loadSession(sessionId) }
-    LaunchedEffect(messages.size, liveContent) {
-        if (messages.isNotEmpty() || isGenerating) {
-            runCatching {
-                listState.animateScrollToItem(maxOf(0, if (isGenerating) messages.size else messages.size - 1))
+
+    // 打开会话：直接（无动画）定位到「最新一轮对话」，避免从顶部一路往下滚很久。
+    var initialScrolled by remember(sessionId) { mutableStateOf(false) }
+    LaunchedEffect(sessionId, messages.size) {
+        if (!initialScrolled && messages.isNotEmpty()) {
+            runCatching { listState.scrollToItem(maxOf(0, messages.size - 1)) }
+            initialScrolled = true
+        }
+    }
+
+    // 生成过程中：仅当用户本来就靠近底部时才跟随，不打断向上翻阅历史。
+    // 直接读 layoutInfo 而非 derivedStateOf（后者在 Compose 1.2.1 需额外 opt-in）。
+    LaunchedEffect(liveContent, liveThinking, isGenerating) {
+        if (isGenerating) {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            if (lastVisible >= info.totalItemsCount - 2) {
+                runCatching { listState.scrollToItem(maxOf(0, messages.size)) }
             }
         }
     }
@@ -73,8 +94,8 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(sessionTitle, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    Column(modifier = Modifier.clickable { showRename = true }) {
+                        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                         Text(ModelOption.find(model).label,
                             style = MaterialTheme.typography.labelSmall,
                             color = AppColors.TextSecondary)
@@ -129,16 +150,23 @@ fun ChatScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 state = listState,
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 if (messages.isEmpty() && !isGenerating) item { EmptyChatHint() }
 
                 items(messages, key = { it.uid }) { msg ->
+                    val isLastAssistant = msg.role == "assistant" &&
+                        messages.lastOrNull { it.role == "assistant" }?.uid == msg.uid
                     MessageBubble(
                         msg = msg,
+                        cotVisible = cotVisible,
                         parseCitations = { viewModel.parseCitations(it) },
+                        parseAttachmentNames = { viewModel.parseAttachmentNames(it) },
                         onCopy = { copyToClipboard(context, msg.content) },
-                        onReadAloud = { viewModel.readAloud(msg.content) }
+                        onReadAloud = { viewModel.readAloud(msg.content) },
+                        onRegenerate = if (isLastAssistant && !isGenerating) {
+                            { viewModel.regenerate(thinkingEnabled, searchEnabled) }
+                        } else null
                     )
                 }
 
@@ -148,7 +176,8 @@ fun ChatScreen(
                             thinking = liveThinking,
                             content = liveContent,
                             toolEvents = toolEvents,
-                            citations = citations
+                            citations = citations,
+                            cotVisible = cotVisible
                         )
                     }
                 }
@@ -162,33 +191,55 @@ fun ChatScreen(
                 searchEnabled = searchEnabled,
                 onSearchToggle = { searchEnabled = it },
                 isGenerating = isGenerating,
-                pendingCount = pendingCount,
+                pendingParts = pendingParts,
+                pendingNames = pendingNames,
+                onRemovePending = { viewModel.removePendingPart(it) },
                 onSend = {
                     viewModel.send(input, thinkingEnabled, searchEnabled)
                     input = ""
-                    pendingCount = 0
                 },
                 onStop = { viewModel.stop() },
                 onAttach = onAttachFile,
                 onImage = onPickImage,
+                onCamera = onTakePhoto,
                 onVoice = { onVoiceInput { text -> input = if (input.isBlank()) text else "$input $text" } }
             )
         }
+    }
+
+    if (showRename) {
+        var text by remember { mutableStateOf(title) }
+        AlertDialog(
+            onDismissRequest = { showRename = false },
+            title = { Text("重命名对话") },
+            text = {
+                OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.renameTitle(text)
+                    showRename = false
+                }) { Text(stringResource(R.string.ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRename = false }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
     }
 }
 
 @Composable
 private fun EmptyChatHint() {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 90.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text("🐋", style = MaterialTheme.typography.displayMedium)
-        Spacer(Modifier.height(8.dp))
-        Text("给大鲸鱼发送消息", style = MaterialTheme.typography.titleMedium,
-            color = AppColors.TextSecondary)
-        Spacer(Modifier.height(4.dp))
-        Text("开启深度思考或联网搜索以获得更强能力", style = MaterialTheme.typography.labelSmall,
+        Spacer(Modifier.height(12.dp))
+        Text("我是赛博大鲸鱼，很高兴见到你", style = MaterialTheme.typography.titleMedium,
+            color = AppColors.TextPrimary)
+        Spacer(Modifier.height(6.dp))
+        Text("可以问我任何问题，或开启深度思考 / 联网搜索", style = MaterialTheme.typography.bodySmall,
             color = AppColors.TextSecondary)
     }
 }
@@ -196,9 +247,12 @@ private fun EmptyChatHint() {
 @Composable
 private fun MessageBubble(
     msg: MessageEntity,
+    cotVisible: Boolean,
     parseCitations: (String?) -> List<UrlCitation>,
+    parseAttachmentNames: (String?) -> List<String>,
     onCopy: () -> Unit,
-    onReadAloud: () -> Unit
+    onReadAloud: () -> Unit,
+    onRegenerate: (() -> Unit)?
 ) {
     val isUser = msg.role == "user"
     Row(
@@ -207,24 +261,46 @@ private fun MessageBubble(
     ) {
         if (!isUser) { Avatar(isUser = false); Spacer(Modifier.width(8.dp)) }
         Column(
-            modifier = Modifier.widthIn(max = 300.dp),
+            // AI 消息占满剩余宽度（官方风格：无气泡、全宽排版）；用户消息限制最大宽度
+            modifier = if (isUser) Modifier.widthIn(max = 300.dp) else Modifier.weight(1f),
             horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
         ) {
+            // 思维链 CoT：官方是先思考后回答，思维块置于正文上方
+            if (!isUser && cotVisible && !msg.thinking.isNullOrEmpty()) {
+                ThinkingBlock(msg.thinking, msg.thinkingElapsed, live = false)
+                Spacer(Modifier.height(8.dp))
+            }
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(if (isUser) 18.dp else 6.dp))
+                    .clip(
+                        if (isUser) RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
+                        else RoundedCornerShape(6.dp)
+                    )
                     .background(if (isUser) AppColors.BubbleUser else Color.Transparent)
                     .padding(if (isUser) 12.dp else 0.dp)
             ) {
                 if (isUser) {
-                    Text(msg.content, color = AppColors.OnBubbleUser, style = MaterialTheme.typography.bodyLarge)
+                    Column {
+                        Text(msg.content, color = AppColors.OnBubbleUser,
+                            style = MaterialTheme.typography.bodyLarge)
+                        val names = parseAttachmentNames(msg.attachmentNamesJson)
+                        if (names.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            names.forEach { n ->
+                                Text("📎 $n", color = AppColors.OnBubbleUser,
+                                    style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            }
+                        }
+                    }
                 } else {
                     MarkdownText(msg.content.ifEmpty { if (msg.isError) "生成失败" else "" })
                 }
             }
-            if (!msg.thinking.isNullOrEmpty()) ThinkingBlock(msg.thinking, msg.thinkingElapsed)
             val cites = parseCitations(msg.searchResultsJson)
-            if (cites.isNotEmpty()) CitationsCard(cites)
+            if (!isUser && cites.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                CitationsCard(cites)
+            }
             if (!isUser && msg.content.isNotEmpty()) {
                 Row {
                     IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
@@ -234,6 +310,12 @@ private fun MessageBubble(
                     IconButton(onClick = onReadAloud, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Default.VolumeUp, contentDescription = "朗读",
                             tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
+                    }
+                    if (onRegenerate != null) {
+                        IconButton(onClick = onRegenerate, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Refresh, contentDescription = "重新生成",
+                                tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
+                        }
                     }
                 }
             }
@@ -245,29 +327,49 @@ private fun MessageBubble(
 @Composable
 private fun Avatar(isUser: Boolean) {
     Box(
-        modifier = Modifier.size(30.dp).clip(RoundedCornerShape(8.dp))
+        modifier = Modifier.size(30.dp).clip(RoundedCornerShape(10.dp))
             .background(if (isUser) AppColors.SurfaceVariant else AppColors.Primary),
         contentAlignment = Alignment.Center
     ) {
-        Text(if (isUser) "我" else "D",
+        Text(if (isUser) "我" else "🐋",
             color = if (isUser) AppColors.TextSecondary else AppColors.OnPrimary,
-            fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+            fontWeight = if (isUser) FontWeight.Bold else FontWeight.Normal,
+            style = MaterialTheme.typography.bodyMedium)
     }
 }
 
+/** 思维链（CoT）展示块：显示耗时、可展开查看完整推理过程，生成中默认展开 */
 @Composable
-private fun ThinkingBlock(thinking: String, elapsed: Double?) {
-    var expanded by remember { mutableStateOf(false) }
+private fun ThinkingBlock(thinking: String, elapsed: Double?, live: Boolean) {
+    var expanded by remember { mutableStateOf(live) }
+    val headline = when {
+        elapsed != null -> "已深度思考（用时 %.1f 秒）".format(elapsed)
+        live -> "正在深度思考…"
+        else -> "已深度思考"
+    }
     Column(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
             .background(AppColors.Surface).padding(10.dp)
     ) {
         Row(modifier = Modifier.clickable { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically) {
-            Text("💭 深度思考", style = MaterialTheme.typography.labelMedium, color = AppColors.Primary)
+            Icon(Icons.Default.Psychology, contentDescription = null,
+                tint = AppColors.Primary, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(headline, style = MaterialTheme.typography.labelMedium, color = AppColors.Primary)
             Spacer(Modifier.weight(1f))
             Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = "展开", tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
+                contentDescription = "展开思维链", tint = AppColors.TextSecondary,
+                modifier = Modifier.size(18.dp))
+        }
+        // 折叠态给出首行预览，避免完全看不到 CoT
+        if (!expanded) {
+            val preview = thinking.lineSequence().firstOrNull().orEmpty().take(48)
+            if (preview.isNotEmpty()) {
+                Text(preview + if (thinking.length > 48) "…" else "",
+                    style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
+                    maxLines = 1, modifier = Modifier.padding(top = 6.dp))
+            }
         }
         AnimatedVisibility(visible = expanded) {
             Text(thinking, style = MaterialTheme.typography.bodySmall,
@@ -309,20 +411,24 @@ private fun LiveResponse(
     thinking: String,
     content: String,
     toolEvents: List<ServerToolEvent>,
-    citations: List<UrlCitation>
+    citations: List<UrlCitation>,
+    cotVisible: Boolean
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Avatar(isUser = false)
         Spacer(Modifier.width(8.dp))
-        Column(modifier = Modifier.widthIn(max = 300.dp)) {
+        Column(modifier = Modifier.weight(1f)) {
             val searching = toolEvents.any { it.kind in listOf("search", "deep_search", "image_search") }
             if (searching && content.isEmpty()) {
                 Text("🔍 正在联网搜索…", style = MaterialTheme.typography.labelMedium,
                     color = AppColors.Primary)
             }
             if (citations.isNotEmpty()) CitationsCard(citations)
-            if (thinking.isNotEmpty()) ThinkingBlock(thinking, null)
+            if (cotVisible && thinking.isNotEmpty()) {
+                ThinkingBlock(thinking, null, live = true)
+            }
             if (content.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
                 MarkdownText(content)
             } else if (thinking.isEmpty() && !searching) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -347,15 +453,41 @@ private fun InputBar(
     searchEnabled: Boolean,
     onSearchToggle: (Boolean) -> Unit,
     isGenerating: Boolean,
-    pendingCount: Int,
+    pendingParts: List<ContentPart>,
+    pendingNames: List<String>,
+    onRemovePending: (Int) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
     onAttach: () -> Unit,
     onImage: () -> Unit,
+    onCamera: () -> Unit,
     onVoice: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxWidth(), shadowElevation = 8.dp, color = AppColors.Background) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            // 待发送附件（可单独移除）；上传完成即出现，发送按钮随之解禁
+            if (pendingParts.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("📎 ${pendingParts.size} 个附件", style = MaterialTheme.typography.labelSmall,
+                        color = AppColors.Primary)
+                }
+                pendingNames.forEachIndexed { index, name ->
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)) {
+                        Text(name, style = MaterialTheme.typography.labelSmall,
+                            color = AppColors.TextSecondary, maxLines = 1,
+                            modifier = Modifier.weight(1f))
+                        IconButton(onClick = { onRemovePending(index) }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "移除附件",
+                                tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
+            }
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FilterChip(
                     selected = thinkingEnabled,
@@ -376,11 +508,6 @@ private fun InputBar(
                         selectedContainerColor = AppColors.PrimaryLight,
                         selectedLabelColor = AppColors.Primary)
                 )
-            }
-            if (pendingCount > 0) {
-                Spacer(Modifier.height(4.dp))
-                Text("📎 已添加 $pendingCount 个附件", style = MaterialTheme.typography.labelSmall,
-                    color = AppColors.Primary)
             }
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.Bottom) {
@@ -407,7 +534,7 @@ private fun InputBar(
                 } else {
                     FilledIconButton(
                         onClick = onSend,
-                        enabled = input.isNotBlank() || pendingCount > 0,
+                        enabled = input.isNotBlank() || pendingParts.isNotEmpty(),
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = AppColors.Primary)
                     ) {
                         Icon(Icons.Filled.Send, contentDescription = "发送")
@@ -417,6 +544,10 @@ private fun InputBar(
             Row {
                 IconButton(onClick = onImage, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.Default.Image, contentDescription = "图片",
+                        tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
+                }
+                IconButton(onClick = onCamera, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.PhotoCamera, contentDescription = "拍照",
                         tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
                 }
                 IconButton(onClick = onVoice, modifier = Modifier.size(32.dp)) {

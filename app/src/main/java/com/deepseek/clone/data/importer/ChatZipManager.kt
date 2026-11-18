@@ -141,7 +141,9 @@ class ChatZipManager(private val context: Context, private val dao: ChatDao) {
                     createdAt = now,
                     updatedAt = now,
                     modelType = "default",
-                    source = "imported"
+                    source = "imported",
+                    // 导入的标题是网页版已确定的，禁止后续自动标题覆盖
+                    titleEdited = true
                 )
             )
             var mid = 0

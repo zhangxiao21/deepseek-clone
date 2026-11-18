@@ -1,6 +1,6 @@
 # 赛博大鲸鱼（DeepSeek 安卓客户端）
 
-**赛博大鲸鱼**是一个用 Kotlin + Jetpack Compose 编写的 DeepSeek 手机端客户端，**使用 DeepSeek 官方开放 API（`api.deepseek.com`，OpenAI 兼容）**，通过 API Key 鉴权。实现同款核心体验：深度思考、联网搜索、模型切换、会话管理、网页版对话包导入导出、文件上传、图片识别、语音输入与朗读，以及可切换的浅色 / 深色 / 跟随系统主题。
+**赛博大鲸鱼**是一个用 Kotlin + Jetpack Compose 编写的 DeepSeek 手机端客户端，**使用 DeepSeek 官方开放 API（`api.deepseek.com`，OpenAI 兼容）**，通过 API Key 鉴权。实现同款核心体验：深度思考（CoT 思维链展示与耗时）、联网搜索、模型切换、会话管理、网页版对话包导入导出、文件上传、拍照/相册图片、语音输入与朗读、**长期记忆**、**上下文压缩**，以及可切换的浅色 / 深色 / 跟随系统主题。
 
 > ⚠️ **非官方项目，仅供学习研究。** 调用 API 按官方计费，费用由你的 DeepSeek 账户承担。API Key 等价账户付费权限，本 App 将其加密存于 Android Keystore，绝不写日志、绝不上传第三方。
 
@@ -75,12 +75,14 @@ export JAVA_HOME=/path/to/jdk-17
 
 | 模块 | 功能 | 官方 API 对应 |
 |---|---|---|
-| 核心对话 | 流式输出、深度思考开关、推理强度、模型切换、停止生成、Markdown 渲染、思考折叠 | `POST /chat/completions` (`stream:true`, `thinking.type`, `reasoning_effort`)，思考内容在 `reasoning_content` |
+| 核心对话 | 流式输出、深度思考开关、推理强度、模型切换、停止生成、Markdown 渲染、**CoT 思维链（耗时/预览/展开）**、重新生成 | `POST /chat/completions` (`stream:true`, `thinking.type`, `reasoning_effort`)，思考内容在 `reasoning_content` |
 | 联网搜索 | 内置联网工具，自动搜索并附引用；支持边思考边检索 | `tools: [{type:deepseek_web_search}, {type:deepseek_read_url}]`，引用在 `annotations`，过程在 `server_tool_event` |
-| 会话管理 | 列表/搜索/重命名/置顶/删除；自动用 API 返回的标题命名 | 本地 JSON 存储 + `title.enabled` |
+| 会话管理 | 列表/搜索/重命名/置顶/删除；**仅首轮自动命名，手动/导入标题永不覆盖** | 本地 JSON 存储 + `title.enabled`（按需请求） |
 | 导入导出 | 导入网页版 `deepseek_data-*.zip`，按 `parent_id` 摊平；导出本地会话；兼容 ISO 时间、大写角色、JsonNull、附件占位 | `ChatZipManager` |
+| **长期记忆** | 跨会话积累用户事实/偏好，自动抽取去重并注入 system prompt；设置页可查看/编辑/清空，可开关 | `ContextEngine.learn()`（后台轻量非流式调用） |
+| **上下文压缩** | 历史过长时把较旧轮次压成摘要随会话缓存，只回传最近若干轮原文；增量压缩、可开关 | `ContextEngine.compressInBackground()` / `prepareHistory()` |
 | 外观 | 浅色 / 深色 / 跟随系统三态切换，即时生效并持久化；退出登录保留偏好 | 设置 → 外观（`ThemeMode` + 动态 `AppPalette`） |
-| 文件/图片 | 图片上传（vision）、PDF/Word/PPT 解析、多模态消息 | Files API `POST /files` + `messages[].content` 多模态数组 |
+| 文件/图片 | 图片上传（vision）、**相机拍照**、PDF/Word/PPT 解析、多模态消息、附件名展示与移除 | Files API `POST /files` + `messages[].content` 多模态数组 |
 | 语音 | 语音输入（系统 SpeechRecognizer）、朗读（TextToSpeech） | `SpeechHelper`、`ReadAloudHelper` |
 | 安全 | API Key 加密存储、日志脱敏 | `EncryptedSharedPreferences` |
 
@@ -131,7 +133,29 @@ export JAVA_HOME=/path/to/jdk-17
 - Files API：`POST /files`（multipart，`purpose` 字段在 `file` 之前），返回 `file_id`，消息用 `{"type":"file","file_id":"..."}` 引用
 - purpose：图片/文本用 `user_data`，PDF/Word/PPT 用 `rich_layout_recognition`（图文混排）或 `text_recognition`
 
-### 4.4 导入 zip
+> ⚠️ **HTTP 400 坑（已修）**：引用已上传文件时，content part **只能**带 `type` + `file_id`，
+> **绝不能同时带 `filename`**。否则服务端报
+> `messages[n].content[m]: file cannot have filename when file_id is present`。
+> 旧实现把文件名一起塞进 `ContentPart`，还把该 part 落库进 `fileRefsJson`，
+> 导致下一轮回传历史时必失败。现在：
+> - 上传成功只构造 `ContentPart(type="file", fileId=id)`；文件名另存 `attachmentNamesJson`，仅本地 UI 用；
+> - `Repository.sanitizeParts()` 在每次 `buildMessages` 前清洗所有 part（含历史落库的旧脏数据），
+>   保证发往 API 的 part 永远合法。
+
+### 4.4 长期记忆与上下文压缩
+
+官方 API 无状态，每轮都要把"该让模型知道的东西"重新发一遍。这两项由 `ContextEngine` 负责：
+
+- **system prompt** = 人设 + 长期记忆（跨会话用户事实）+ 本会话较早轮次的压缩摘要
+- **长期记忆**：每轮结束后用一次轻量非流式 `chat/completions`（`stream:false`）抽取稳定事实，
+  JSON 数组解析 + 去重，最多 40 条，持久化在加密存储
+- **上下文压缩**：历史 > 30 条时，把「缓存摘要之后、最近 24 条之前」的新增旧消息压成 ≤600 字摘要，
+  按会话缓存并增量更新，只回传最近 24 条原文
+- **失败静默降级**：所有辅助调用带 25s 超时、全程 try/catch，网络/解析失败一律忽略，
+  绝不阻断主对话；压缩结果刻意滞后一轮使用，保证首字不被拖慢
+- 设置 → 记忆与上下文：三个开关（长期记忆 / 上下文压缩 / 显示思维链）+ 记忆查看/编辑/清空
+
+### 4.5 导入 zip
 
 网页版 `deepseek_data-*.zip`（`manifest.json` 的 `export_format_version:3`）：按 `current_message_id` 沿 `parent_id` 回溯摊平，按 `id` 升序排列（不用 `inserted_at`，非单调），过滤 `CONTENT_FILTER`/失败态。
 
@@ -173,7 +197,7 @@ export JAVA_HOME=/path/to/jdk-17
 1. **计费**：联网搜索、图片、长文本都按 token 计费，注意账户余额。`usage` 会统计 `server_tool_use` 次数。
 2. **401/402/403**：App 会自动提示"API Key 无效/余额不足/无权限"并跳回登录页。
 3. **图片模型**：仅 `deepseek-flash` 系支持图片；专家模型 `deepseek-v4-pro` 不支持。
-4. **上下文长度**：历史最多回传 40 条；超长会触发 API 的长度错误。
+4. **上下文长度**：开启上下文压缩时只回传最近 24 条原文 + 缓存摘要（关闭时最多 60 条）；超长会触发 API 的长度错误。记忆/压缩/摘要都是"尽力而为"，失败不影响对话。
 5. **语音**：`SpeechRecognizer` 离线能力取决于设备；朗读需系统装有中文语音包。
 6. **停止生成**：官方 API 无独立 stop 端点，App 通过取消本地收集/关闭连接实现。
 7. **Material3 版本锁定**：依赖固定 `material3:1.0.0`（云编译为离线镜像，不宜升级）。代码使用 1.0.0 的 API：`smallTopAppBarColors`、`TextFieldDefaults.outlinedTextFieldColors`、`Divider`、`Icons.Filled.*`，会话操作菜单用 `AlertDialog`（1.0.0 无 `ModalBottomSheet` 与新版 `ListItem`）。**不要单独升级 Material3**——它会连带提升 Compose runtime，破坏 Kotlin 1.7.20 + Compiler 1.3.2 的严格配对。同理 `security-crypto` 固定 1.0.0，用 `MasterKeys` 旧签名而非 1.1+ 的 `MasterKey`。
@@ -195,8 +219,10 @@ DeepSeekApp/
     │   │   ├── model/Dtos.kt                   # OpenAI 兼容 DTO
     │   │   ├── remote/                         # Retrofit/OkHttp/SSE
     │   │   ├── local/                          # JSON存储/Keystore
-    │   │   ├── importer/ChatZipManager.kt      # zip 导入导出
-    │   │   └── repository/Repository.kt        # 业务编排
+│   │   ├── importer/ChatZipManager.kt      # zip 导入导出
+│   │   └── repository/
+│   │       ├── Repository.kt                # 业务编排 / 请求构造 / part 清洗
+│   │       └── ContextEngine.kt             # 长期记忆 + 上下文压缩 + system prompt
     │   └── ui/                                 # Compose 界面
     └── res/
 ```

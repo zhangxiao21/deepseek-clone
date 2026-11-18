@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     store: SecureStore,
     zipManager: ChatZipManager,
+    repository: com.deepseek.clone.data.repository.Repository,
     themeMode: String,
     onThemeModeChange: (String) -> Unit,
     onBack: () -> Unit,
@@ -41,6 +42,14 @@ fun SettingsScreen(
     var showLogoutDialog by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var importResult by remember { mutableStateOf<String?>(null) }
+
+    // 记忆 / 上下文 / CoT 设置
+    var memoryEnabled by remember { mutableStateOf(store.memoryEnabled) }
+    var compressionEnabled by remember { mutableStateOf(store.compressionEnabled) }
+    var cotVisible by remember { mutableStateOf(store.cotVisible) }
+    var showMemoryDialog by remember { mutableStateOf(false) }
+    var memoryFacts by remember { mutableStateOf(repository.context.memoryFacts()) }
+    var memoryNotice by remember { mutableStateOf<String?>(null) }
 
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -134,6 +143,52 @@ fun SettingsScreen(
 
             Divider(color = AppColors.Divider)
 
+            // ---------- 记忆与上下文 ----------
+            SettingsSection(title = "记忆与上下文") {
+                SettingToggle(
+                    title = "长期记忆",
+                    subtitle = "跨会话记住你的偏好与事实，自动注入每次对话",
+                    checked = memoryEnabled,
+                    onCheckedChange = { v ->
+                        memoryEnabled = v
+                        store.memoryEnabled = v
+                    }
+                )
+                SettingToggle(
+                    title = "上下文压缩",
+                    subtitle = "历史过长时把较早轮次压成摘要，保留最近对话原文，控制 token",
+                    checked = compressionEnabled,
+                    onCheckedChange = { v ->
+                        compressionEnabled = v
+                        store.compressionEnabled = v
+                    }
+                )
+                SettingToggle(
+                    title = "显示思维链 (CoT)",
+                    subtitle = "在回答上方展示完整推理过程与耗时",
+                    checked = cotVisible,
+                    onCheckedChange = { v ->
+                        cotVisible = v
+                        store.cotVisible = v
+                    }
+                )
+                SettingItem(
+                    icon = Icons.Default.Psychology,
+                    title = "查看 / 编辑长期记忆",
+                    subtitle = "当前已记住 ${memoryFacts.size} 条",
+                    onClick = {
+                        memoryFacts = repository.context.memoryFacts()
+                        showMemoryDialog = true
+                    }
+                )
+                memoryNotice?.let {
+                    Text(it, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.bodySmall, color = AppColors.Success)
+                }
+            }
+
+            Divider(color = AppColors.Divider)
+
             SettingsSection(title = stringResource(R.string.import_chat)) {
                 SettingItem(
                     icon = Icons.Default.FileDownload,
@@ -205,6 +260,48 @@ fun SettingsScreen(
         }
     }
 
+    if (showMemoryDialog) {
+        var text by remember { mutableStateOf(memoryFacts.joinToString("\n")) }
+        AlertDialog(
+            onDismissRequest = { showMemoryDialog = false },
+            title = { Text("长期记忆") },
+            text = {
+                Column {
+                    Text("每行一条。对话结束后会自动补充新的事实；也可以手动编辑或清空。",
+                        style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 260.dp),
+                        maxLines = 10
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val list = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                    repository.context.setMemoryFacts(list)
+                    memoryFacts = repository.context.memoryFacts()
+                    showMemoryDialog = false
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        repository.context.clearMemory()
+                        memoryFacts = emptyList()
+                        memoryNotice = "已清空长期记忆"
+                        showMemoryDialog = false
+                    }) { Text("清空", color = AppColors.Error) }
+                    TextButton(onClick = { showMemoryDialog = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                }
+            }
+        )
+    }
+
     if (showLogoutDialog) {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
@@ -229,6 +326,28 @@ private fun SettingsSection(title: String, content: @Composable ColumnScope.() -
         Text(title, style = MaterialTheme.typography.titleSmall,
             color = AppColors.Primary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
         content()
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingToggle(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(subtitle, style = MaterialTheme.typography.labelSmall,
+                color = AppColors.TextSecondary)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
