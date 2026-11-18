@@ -12,8 +12,8 @@
 
 | 组件 | 版本 |
 |---|---|
-| JDK | **17**（8/11/17 中推荐 17） |
-| Gradle | **7.3.3**（wrapper 已锁定） |
+| JDK | 11 / 17 均可（AGP 7.2.2 要求 ≥11；Gitee 流水线实际为 11） |
+| Gradle | wrapper 锁定 **7.3.3**；Gitee 流水线用系统 Gradle 7.6，实测兼容 |
 | Android Gradle Plugin | 7.2.2 |
 | Kotlin | 1.7.20 |
 | Compose Compiler | 1.3.2（官方配对 compiler 1.3.2 ↔ Kotlin 1.7.20） |
@@ -32,6 +32,18 @@ export JAVA_HOME=/path/to/jdk-17
 ```
 
 若云环境已把 gradle 7.3.3 加入 PATH，也可直接用 `gradle assembleDebug`。
+
+### Gitee 云编译流水线（当前实际环境）
+
+仓库自带 `.workflow/流水线-202611181208.yml`，平台 `build@android` 步骤参数为 `jdkVersion: 11`、`gradleVersion: 7.6`，构建命令是 `gradle assembleRelease`（**用系统 Gradle，不走 `./gradlew`**）。所以日志里出现 Gradle 7.6.4 而非 wrapper 的 7.3.3，属正常。
+
+平台会注入自己的镜像仓库，构建时可能打印：
+
+> `The project declares repositories, effectively ignoring the repositories you have declared in the settings.`
+
+这是非致命提示（构建会继续），不影响依赖解析。
+
+> ⚠️ **历史坑**：Compose Compiler 版本必须与 Kotlin 严格配对。`androidx.compose.compiler:compiler:1.2.1` 这个 artifact **在 Google Maven 上根本不存在**（官方只有 `1.2.0 ↔ Kotlin 1.7.0`、`1.3.0/1.3.1 ↔ Kotlin 1.7.10`、`1.3.2 ↔ Kotlin 1.7.20`），误填即报 `Could not find androidx.compose.compiler:compiler:1.2.1`。当前正确配置为 **Kotlin 1.7.20 + Compiler 1.3.2**。Compose UI 库版本（1.2.1）与 compiler 版本已解耦，无需保持一致。
 
 ### Android Studio 编译
 
@@ -146,7 +158,7 @@ DeepSeekApp/
     └── res/
 ```
 
-`data/pow/` 与 `ui/login/` 中保留的历史代码（私有接口时代的 PoW/WebView）已不再使用，可安全忽略。
+私有接口时代的 PoW 计算（`DeepSeekPow.kt`）、网页版流式接口（`StreamApi.kt`）及 Room/kapt 注解处理已彻底移除；登录页已改为官方 API Key 输入。
 
 调研详情见工程外层 `deepseek-api-research.md`（接口清单、字段表、来源 URL；其中私有接口部分仅作背景，本 App 用的是官方 API）。
 
