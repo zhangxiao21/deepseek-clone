@@ -15,8 +15,8 @@
 | JDK | **17**（8/11/17 中推荐 17） |
 | Gradle | **7.3.3**（wrapper 已锁定） |
 | Android Gradle Plugin | 7.2.2 |
-| Kotlin | 1.7.10 |
-| Compose Compiler | 1.2.1 |
+| Kotlin | 1.7.20 |
+| Compose Compiler | 1.3.2（官方配对 compiler 1.3.2 ↔ Kotlin 1.7.20） |
 | compileSdk / targetSdk / minSdk | 33 / 33 / 26 |
 
 ### 命令行编译（推荐）
