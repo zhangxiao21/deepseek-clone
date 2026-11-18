@@ -11,7 +11,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -25,10 +27,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.deepseek.clone.R
 import com.deepseek.clone.core.ModelOption
 import com.deepseek.clone.data.local.MessageEntity
@@ -41,7 +46,7 @@ import com.deepseek.clone.ui.theme.AppColors
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    sessionId: String,
+    sessionId: String?,
     sessionTitle: String,
     viewModel: ChatViewModel,
     onBack: () -> Unit,
@@ -67,6 +72,7 @@ fun ChatScreen(
     val cotVisible by viewModel.cotVisible.collectAsState()
     val pendingParts by viewModel.pendingParts.collectAsState()
     val pendingNames by viewModel.pendingNames.collectAsState()
+    val pendingPaths by viewModel.pendingPaths.collectAsState()
 
     var input by remember { mutableStateOf("") }
     var thinkingEnabled by remember { mutableStateOf(true) }
@@ -190,8 +196,10 @@ fun ChatScreen(
                         cotVisible = cotVisible,
                         parseCitations = { viewModel.parseCitations(it) },
                         parseAttachmentNames = { viewModel.parseAttachmentNames(it) },
+                        parseAttachmentPaths = { viewModel.parseAttachmentPaths(it) },
                         onCopy = { copyToClipboard(context, msg.content) },
                         onReadAloud = { viewModel.readAloud(msg.content) },
+                        onStopReadAloud = { viewModel.stopReadAloud() },
                         onRegenerate = if (isLastAssistant && !isGenerating) {
                             { viewModel.regenerate(thinkingEnabled, searchEnabled) }
                         } else null
@@ -221,6 +229,7 @@ fun ChatScreen(
                 isGenerating = isGenerating,
                 pendingParts = pendingParts,
                 pendingNames = pendingNames,
+                pendingPaths = pendingPaths,
                 onRemovePending = { viewModel.removePendingPart(it) },
                 onSend = {
                     viewModel.send(input, thinkingEnabled, searchEnabled)
@@ -288,8 +297,10 @@ private fun MessageBubble(
     cotVisible: Boolean,
     parseCitations: (String?) -> List<UrlCitation>,
     parseAttachmentNames: (String?) -> List<String>,
+    parseAttachmentPaths: (String?) -> List<String>,
     onCopy: () -> Unit,
     onReadAloud: () -> Unit,
+    onStopReadAloud: () -> Unit,
     onRegenerate: (() -> Unit)?
 ) {
     val isUser = msg.role == "user"
@@ -322,11 +333,23 @@ private fun MessageBubble(
                         Text(msg.content, color = AppColors.OnBubbleUser,
                             style = MaterialTheme.typography.bodyLarge)
                         val names = parseAttachmentNames(msg.attachmentNamesJson)
-                        if (names.isNotEmpty()) {
-                            Spacer(Modifier.height(6.dp))
-                            names.forEach { n ->
-                                Text("📎 $n", color = AppColors.OnBubbleUser,
-                                    style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        val paths = parseAttachmentPaths(msg.attachmentUrisJson)
+                        val count = maxOf(names.size, paths.size)
+                        if (count > 0) {
+                            Spacer(Modifier.height(8.dp))
+                            repeat(count) { i ->
+                                val name = names.getOrNull(i) ?: "附件 ${i + 1}"
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                                ) {
+                                    AttachmentThumb(paths.getOrNull(i).orEmpty(), name,
+                                        Modifier.size(42.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(name, color = AppColors.OnBubbleUser,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1, modifier = Modifier.weight(1f))
+                                }
                             }
                         }
                     }
@@ -347,6 +370,10 @@ private fun MessageBubble(
                     }
                     IconButton(onClick = onReadAloud, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Default.VolumeUp, contentDescription = "朗读",
+                            tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
+                    }
+                    IconButton(onClick = onStopReadAloud, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Stop, contentDescription = "停止朗读",
                             tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
                     }
                     if (onRegenerate != null) {
@@ -493,6 +520,7 @@ private fun InputBar(
     isGenerating: Boolean,
     pendingParts: List<ContentPart>,
     pendingNames: List<String>,
+    pendingPaths: List<String>,
     onRemovePending: (Int) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -509,36 +537,47 @@ private fun InputBar(
 
     Surface(modifier = Modifier.fillMaxWidth(), color = AppColors.Background) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            // 待发送附件：横排可移除的小胶囊，多图时一眼看清选了几张
+            // 待发送附件：每张图都有缩略图 + 文件名，能一眼看清传了哪几张
             if (pendingNames.isNotEmpty()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    pendingNames.take(4).forEachIndexed { index, name ->
-                        Row(
+                    pendingNames.forEachIndexed { index, name ->
+                        Column(
                             modifier = Modifier
-                                .padding(end = 6.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                                .width(96.dp)
+                                .padding(end = 8.dp)
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(AppColors.SurfaceVariant)
-                                .padding(horizontal = 8.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("📎 $name", style = MaterialTheme.typography.labelSmall,
-                                color = AppColors.TextPrimary, maxLines = 1,
-                                modifier = Modifier.widthIn(max = 110.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Icon(
-                                Icons.Default.Close, contentDescription = "移除",
-                                tint = AppColors.TextSecondary,
-                                modifier = Modifier.size(13.dp).clickable { onRemovePending(index) }
-                            )
+                            Box {
+                                AttachmentThumb(
+                                    path = pendingPaths.getOrNull(index).orEmpty(),
+                                    name = name,
+                                    modifier = Modifier.size(66.dp)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(18.dp)
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(AppColors.Error.copy(alpha = 0.9f))
+                                        .clickable { onRemovePending(index) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "移除",
+                                        tint = Color.White, modifier = Modifier.size(12.dp))
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(name, style = MaterialTheme.typography.labelSmall,
+                                color = AppColors.TextPrimary, maxLines = 1)
                         }
-                    }
-                    if (pendingNames.size > 4) {
-                        Text("+${pendingNames.size - 4}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = AppColors.TextSecondary)
                     }
                 }
             }
@@ -735,6 +774,38 @@ private fun AttachTile(
         Spacer(Modifier.height(7.dp))
         Text(label, style = MaterialTheme.typography.bodyMedium,
             color = AppColors.TextPrimary, fontWeight = FontWeight.Medium)
+    }
+}
+
+/** 附件缩略图：本地缓存文件还在就显示真实图片，否则退化为通用文件图标 */
+@Composable
+private fun AttachmentThumb(path: String, name: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val exists = remember(path) {
+        path.isNotBlank() && try {
+            java.io.File(path).exists()
+        } catch (_: Exception) { false }
+    }
+    val shape = RoundedCornerShape(8.dp)
+    if (exists) {
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(java.io.File(path))
+                .size(240)
+                .crossfade(true)
+                .build(),
+            contentDescription = name,
+            contentScale = ContentScale.Crop,
+            modifier = modifier.clip(shape).background(AppColors.SurfaceVariant)
+        )
+    } else {
+        Box(
+            modifier = modifier.clip(shape).background(AppColors.SurfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.AttachFile, contentDescription = name,
+                tint = AppColors.TextSecondary, modifier = Modifier.size(22.dp))
+        }
     }
 }
 

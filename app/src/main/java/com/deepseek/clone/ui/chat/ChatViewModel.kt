@@ -62,12 +62,20 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val _sessionTitle = MutableStateFlow("新对话")
     val sessionTitle: StateFlow<String> = _sessionTitle.asStateFlow()
 
+    /** 空首页发出第一条消息时才创建的会话 id，供导航同步（打开 App 不预建会话） */
+    private val _startedSessionId = MutableStateFlow<String?>(null)
+    val startedSessionId: StateFlow<String?> = _startedSessionId.asStateFlow()
+
     /** 待发送附件：改为可观察状态，上传完成后发送按钮会立即解禁 */
     private val _pendingParts = MutableStateFlow<List<ContentPart>>(emptyList())
     val pendingParts: StateFlow<List<ContentPart>> = _pendingParts.asStateFlow()
 
     private val _pendingNames = MutableStateFlow<List<String>>(emptyList())
     val pendingNames: StateFlow<List<String>> = _pendingNames.asStateFlow()
+
+    /** 附件本地缓存文件路径（与 pendingParts 同索引），只用于缩略图预览 */
+    private val _pendingPaths = MutableStateFlow<List<String>>(emptyList())
+    val pendingPaths: StateFlow<List<String>> = _pendingPaths.asStateFlow()
 
     /** CoT 是否展示 */
     private val _cotVisible = MutableStateFlow(true)
@@ -86,8 +94,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** 用户主动停止或看门狗中断：此时不要把底层 IOException 当错误弹给用户 */
     private var aborted = false
 
-    fun loadSession(sessionId: String) {
+    /** null = 官方空首页：显示欢迎语但不落库任何会话，发第一条消息时才创建 */
+    fun loadSession(sessionId: String?) {
         refreshCotVisible()
+        _startedSessionId.value = null
+        if (sessionId == null) {
+            currentSessionId = null
+            messagesJob?.cancel()
+            messagesJob = null
+            _messages.value = emptyList()
+            _sessionTitle.value = "新对话"
+            return
+        }
         // 修复：collect 是无限流，原代码把读 session 放在 collect 之后，永远不会执行。
         // 拆成独立协程，模型与标题才能正确加载。
         if (currentSessionId != sessionId || messagesJob?.isActive != true) {
@@ -139,20 +157,23 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 上传成功后添加附件（下一条消息携带）；name 仅用于本地 UI 展示 */
-    fun addPendingPart(part: ContentPart, name: String) {
+    /** 上传成功后添加附件（下一条消息携带）；name / localPath 仅用于本地 UI 展示 */
+    fun addPendingPart(part: ContentPart, name: String, localPath: String? = null) {
         _pendingParts.value = _pendingParts.value + part
         _pendingNames.value = _pendingNames.value + name
+        _pendingPaths.value = _pendingPaths.value + (localPath ?: "")
     }
 
     fun removePendingPart(index: Int) {
         _pendingParts.value = _pendingParts.value.filterIndexed { i, _ -> i != index }
         _pendingNames.value = _pendingNames.value.filterIndexed { i, _ -> i != index }
+        _pendingPaths.value = _pendingPaths.value.filterIndexed { i, _ -> i != index }
     }
 
     fun clearPendingParts() {
         _pendingParts.value = emptyList()
         _pendingNames.value = emptyList()
+        _pendingPaths.value = emptyList()
     }
 
     /** 手动重命名后同步顶栏，并阻止后续自动标题 */
@@ -167,22 +188,50 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         searchEnabled: Boolean,
         effort: String = ApiConfig.EFFORT_HIGH
     ) {
-        val sessionId = currentSessionId ?: return
         val parts = _pendingParts.value.toList()
         if (text.isBlank() && parts.isEmpty()) return
         val names = _pendingNames.value.toList()
-        sendCore(
-            sessionId = sessionId,
-            text = text,
-            parts = parts,
-            names = names,
-            thinkingEnabled = thinkingEnabled,
-            searchEnabled = searchEnabled,
-            effort = effort,
-            historyOverride = null,
-            reuseUser = false,
-            existingUserMsgId = 0
-        )
+        val paths = _pendingPaths.value.toList()
+        val sid = currentSessionId
+        if (sid == null) {
+            // 官方行为：打开 App 时不预建空会话，只有真正开始对话（发出第一条消息）才落库
+            viewModelScope.launch {
+                val newId = repo.createLocalSession("新对话", ApiConfig.MODEL_FLASH)
+                currentSessionId = newId
+                _startedSessionId.value = newId
+                messagesJob?.cancel()
+                messagesJob = viewModelScope.launch {
+                    repo.observeMessages(newId).collect { _messages.value = it }
+                }
+                sendCore(
+                    sessionId = newId,
+                    text = text,
+                    parts = parts,
+                    names = names,
+                    paths = paths,
+                    thinkingEnabled = thinkingEnabled,
+                    searchEnabled = searchEnabled,
+                    effort = effort,
+                    historyOverride = null,
+                    reuseUser = false,
+                    existingUserMsgId = 0
+                )
+            }
+        } else {
+            sendCore(
+                sessionId = sid,
+                text = text,
+                parts = parts,
+                names = names,
+                paths = paths,
+                thinkingEnabled = thinkingEnabled,
+                searchEnabled = searchEnabled,
+                effort = effort,
+                historyOverride = null,
+                reuseUser = false,
+                existingUserMsgId = 0
+            )
+        }
     }
 
     /** 重新生成：删除最后一条助手回复，复用最后一条 user 消息重发（不重复落库 user） */
@@ -196,12 +245,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val history = all.filter { it.uid != lastAssistant.uid && it.uid != lastUser.uid }
         val parts = repo.parseContentParts(lastUser.fileRefsJson).orEmpty()
         val names = repo.parseAttachmentNames(lastUser.attachmentNamesJson)
+        val paths = repo.parseAttachmentPaths(lastUser.attachmentUrisJson)
         viewModelScope.launch { repo.deleteMessage(lastAssistant.uid) }
         sendCore(
             sessionId = sessionId,
             text = lastUser.content,
             parts = parts,
-            names = emptyList(),
+            names = names,
+            paths = paths,
             thinkingEnabled = thinkingEnabled,
             searchEnabled = searchEnabled,
             effort = ApiConfig.EFFORT_HIGH,
@@ -221,6 +272,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         text: String,
         parts: List<ContentPart>,
         names: List<String>,
+        paths: List<String>,
         thinkingEnabled: Boolean,
         searchEnabled: Boolean,
         effort: String,
@@ -258,7 +310,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             thinkingEnabled = thinkingEnabled,
                             searchEnabled = searchEnabled,
                             fileRefsJson = if (parts.isEmpty()) null else gson.toJson(parts),
-                            attachmentNamesJson = if (names.isEmpty()) null else gson.toJson(names)
+                            attachmentNamesJson = if (names.isEmpty()) null else gson.toJson(names),
+                            attachmentUrisJson = if (paths.isEmpty()) null else gson.toJson(paths)
                         )
                     )
                     clearPendingParts()
@@ -375,6 +428,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             watchdogJob?.cancel()
                             runCatching { streamBody?.close() }
                             streamBody = null
+                            // 文字转语音：生成结束后自动朗读整段回复（设置页可开关）
+                            if (content.isNotEmpty() &&
+                                (getApplication() as DeepSeekApp).services.store.autoReadAloud
+                            ) {
+                                readAloud(content)
+                            }
                         }
                         // 6. 后台增量上下文压缩 + 长期记忆提取（失败静默，不阻断）
                         // 挂在 viewModelScope 上，避免继承已取消的 collectJob
@@ -406,12 +465,19 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         watchdogJob?.cancel()
         runCatching { streamBody?.close() }
         collectJob?.cancel()
+        stopReadAloud()
         _isGenerating.value = false
+    }
+
+    fun stopReadAloud() {
+        (getApplication() as DeepSeekApp).readAloud.stop()
     }
 
     fun parseCitations(json: String?): List<UrlCitation> = repo.parseCitations(json)
 
     fun parseAttachmentNames(json: String?): List<String> = repo.parseAttachmentNames(json)
+
+    fun parseAttachmentPaths(json: String?): List<String> = repo.parseAttachmentPaths(json)
 
     fun clearError() { _error.value = null }
 

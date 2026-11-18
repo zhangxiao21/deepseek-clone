@@ -85,6 +85,7 @@ fun SettingsScreen(
     var memoryEnabled by remember { mutableStateOf(store.memoryEnabled) }
     var compressionEnabled by remember { mutableStateOf(store.compressionEnabled) }
     var cotVisible by remember { mutableStateOf(store.cotVisible) }
+    var autoReadAloud by remember { mutableStateOf(store.autoReadAloud) }
     var showMemoryDialog by remember { mutableStateOf(false) }
     var memoryFacts by remember { mutableStateOf(repository.context.memoryFacts()) }
     var rebuildingMemory by remember { mutableStateOf(false) }
@@ -152,6 +153,11 @@ fun SettingsScreen(
                 Page.MAIN -> MainPage(
                     themeLabel = ThemeMode.label(themeMode),
                     fontLabel = fontLabel(fontScale),
+                    autoReadAloud = autoReadAloud,
+                    onAutoReadAloud = {
+                        autoReadAloud = !autoReadAloud
+                        store.autoReadAloud = autoReadAloud
+                    },
                     onAccount = { page = Page.ACCOUNT },
                     onData = { page = Page.DATA },
                     onLanguage = { showLanguageDialog = true },
@@ -376,7 +382,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showUpdateDialog = false },
             title = { Text("检查更新") },
-            text = { Text("当前版本 1.2（versionCode 3）。本项目由 Gitee 云流水线构建，请在仓库触发流水线获取新版本。") },
+            text = { Text("当前版本 1.3（versionCode 4）。本项目由 Gitee 云流水线构建，请在仓库触发流水线获取新版本。") },
             confirmButton = { TextButton(onClick = { showUpdateDialog = false }) { Text("知道了") } }
         )
     }
@@ -406,6 +412,8 @@ fun SettingsScreen(
 private fun MainPage(
     themeLabel: String,
     fontLabel: String,
+    autoReadAloud: Boolean,
+    onAutoReadAloud: () -> Unit,
     onAccount: () -> Unit,
     onData: () -> Unit,
     onLanguage: () -> Unit,
@@ -430,11 +438,13 @@ private fun MainPage(
         RowItem(Icons.Default.Edit, "个性化", onClick = onPersonalization)
     ))
     CardGroup("语音", listOf(
+        RowItem(Icons.Default.PlayArrow, "自动朗读回复",
+            if (autoReadAloud) "已开启" else "已关闭", onAutoReadAloud),
         RowItem(Icons.Default.VolumeUp, "朗读音色", onClick = onTts),
         RowItem(Icons.Default.Mic, "语音识别设置", "下载离线语音包", onVoiceSettings)
     ))
     CardGroup("关于", listOf(
-        RowItem(Icons.Default.Info, "检查更新", "1.2 (3)", onUpdate),
+        RowItem(Icons.Default.Info, "检查更新", "1.3 (4)", onUpdate),
         RowItem(Icons.Default.Description, "服务协议", onClick = onAgreement),
         RowItem(Icons.Default.Settings, "项目说明", onClick = onAbout)
     ))
@@ -586,7 +596,7 @@ private fun PersonalizationPage(
 @Composable
 private fun AboutPage(context: Context) {
     CardGroup("赛博大鲸鱼", listOf(
-        RowItem(Icons.Default.Info, "版本", "1.2 (3)", onClick = {}),
+        RowItem(Icons.Default.Info, "版本", "1.3 (4)", onClick = {}),
         RowItem(Icons.Default.Public, "API 服务", "api.deepseek.com", onClick = {
             openUrl(context, "https://api-docs.deepseek.com/zh-cn/")
         })

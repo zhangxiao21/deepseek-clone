@@ -191,6 +191,11 @@ class SecureStore(context: Context) {
         get() = prefs.getBoolean(KEY_COT_VISIBLE, true)
         set(value) = prefs.edit().putBoolean(KEY_COT_VISIBLE, value).apply()
 
+    /** 自动朗读 AI 回复（TextToSpeech 系统合成，默认关闭） */
+    var autoReadAloud: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_READ_ALOUD, false)
+        set(value) = prefs.edit().putBoolean(KEY_AUTO_READ_ALOUD, value).apply()
+
     var isLoggedIn: Boolean
         get() = !token.isNullOrBlank()
         set(value) { if (!value) authBlocked = true }
@@ -204,6 +209,7 @@ class SecureStore(context: Context) {
         val keepMemoryFacts = memoryFactsJson
         val keepCompression = compressionEnabled
         val keepCot = cotVisible
+        val keepAutoReadAloud = autoReadAloud
         val keepModel = defaultModelType
         val keepFontScale = fontScale
         prefs.edit().clear().apply()
@@ -212,6 +218,7 @@ class SecureStore(context: Context) {
         memoryFactsJson = keepMemoryFacts
         compressionEnabled = keepCompression
         cotVisible = keepCot
+        autoReadAloud = keepAutoReadAloud
         defaultModelType = keepModel
         fontScale = keepFontScale
     }
@@ -229,5 +236,6 @@ class SecureStore(context: Context) {
         private const val KEY_MEMORY_FACTS = "memory_facts"
         private const val KEY_COMPRESSION_ENABLED = "compression_enabled"
         private const val KEY_COT_VISIBLE = "cot_visible"
+        private const val KEY_AUTO_READ_ALOUD = "auto_read_aloud"
     }
 }

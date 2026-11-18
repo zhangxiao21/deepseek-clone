@@ -52,6 +52,8 @@ data class MessageEntity(
     val fileRefsJson: String? = null,
     /** 附件名列表（JSON），仅本地 UI 展示用，绝不发给 API */
     val attachmentNamesJson: String? = null,
+    /** 附件本地缓存文件路径列表（JSON），仅用于显示缩略图，绝不发给 API */
+    val attachmentUrisJson: String? = null,
     val isError: Boolean = false
 )
 

@@ -14,7 +14,7 @@
 
 | 组件 | 版本 |
 |---|---|
-| App 版本 | **1.2（versionCode 3）** |
+| App 版本 | **1.3（versionCode 4）** |
 | JDK | 11 / 17 均可（AGP 7.2.2 要求 ≥11；Gitee 流水线实际为 17） |
 | Gradle | wrapper 锁定 **7.3.3**；Gitee 流水线用系统 Gradle 7.6，实测兼容 |
 | Android Gradle Plugin | 7.2.2 |
@@ -78,13 +78,13 @@ export JAVA_HOME=/path/to/jdk-17
 |---|---|---|
 | 核心对话 | 流式输出、深度思考开关、推理强度、模型切换、停止生成、Markdown 渲染、**CoT 思维链（耗时/预览/展开）**、重新生成 | `POST /chat/completions` (`stream:true`, `thinking.type`, `reasoning_effort`)，思考内容在 `reasoning_content` |
 | 联网搜索 | 内置联网工具，自动搜索并附引用；支持边思考边检索 | `tools: [{type:deepseek_web_search}, {type:deepseek_read_url}]`，引用在 `annotations`，过程在 `server_tool_event` |
-| 会话管理 | **启动默认进入一个全新空对话**（官方首页），汉堡菜单进会话抽屉；列表/搜索/重命名/置顶/删除；仅首轮自动命名，手动/导入标题永不覆盖 | 本地 JSON 存储 + `title.enabled`（按需请求） |
+| 会话管理 | **打开 App 默认空首页、不预建会话；只有发出第一条消息才创建会话**；会话抽屉支持**批量勾选 / 全选 / 批量删除**；列表/搜索/重命名/置顶/删除；仅首轮自动命名，手动/导入标题永不覆盖 | 本地 JSON 存储 + `title.enabled`（按需请求） |
 | 导入导出 | 导入网页版 `deepseek_data-*.zip`，按 `parent_id` 摊平；导出本地会话；兼容 ISO 时间、大写角色、JsonNull、附件占位 | `ChatZipManager` |
 | **长期记忆** | 跨会话积累用户事实/偏好，带最近 6 轮上下文抽取、去重合并，最多 120 条并注入 system prompt；设置页可查看/编辑/清空、可**从最近对话重新提炼** | `ContextEngine.learn()` / `rebuildFromHistory()`（后台轻量非流式调用） |
 | **上下文压缩** | 历史过长时把较旧轮次压成摘要随会话缓存，只回传最近若干轮原文；增量压缩、可开关 | `ContextEngine.compressInBackground()` / `prepareHistory()` |
 | 外观 | 浅色 / 深色 / 跟随系统三态切换，即时生效并持久化；**官方卡片式设置页**（账户/应用/语音/关于分组）、三档字体大小（通过 `LocalDensity.fontScale` 全局缩放）、退出登录保留偏好 | 设置 → 外观（`ThemeMode` + 动态 `AppPalette` + `SecureStore.fontScale`） |
-| 文件/图片 | **应用内相册选择器（网格缩略图 + 一次最多 9 张多选）**、「+」面板最近图片横条 + 拍照/相册/文件三宫格、相机拍照、PDF/Word/PPT 解析、附件名胶囊与移除 | Files API `POST /files` + `messages[].content` 多模态数组 |
-| 语音 | **设备端离线识别优先**（Android 12+ `createOnDeviceSpeechRecognizer`），无离线包直接拉厂商系统语音界面，在线服务报网络错误自动降级；输入区「按住说话」长按唤起；朗读（TextToSpeech） | `SpeechHelper`、`ReadAloudHelper`、Manifest `<queries>` |
+| 文件/图片 | **待发送区与已发送消息均显示真实缩略图 + 文件名**（本地缓存路径只存本地 UI，绝不进 API）、应用内相册选择器（一次最多 9 张多选）、「+」面板最近图片横条 + 拍照/相册/文件三宫格、相机拍照、PDF/Word/PPT 解析 | Files API `POST /files` + `messages[].content` 多模态数组 |
+| 语音 | **设备端离线识别优先**（Android 12+ `createOnDeviceSpeechRecognizer`），无离线包直接拉厂商系统语音界面，在线服务报网络错误自动降级；输入区「按住说话」长按唤起；**文字转语音**：每条 AI 回复可朗读/停止，设置页可开启「自动朗读回复」 | `SpeechHelper`、`ReadAloudHelper`（系统 TextToSpeech）、Manifest `<queries>` |
 | 安全 | **多个 API Key 加密保存，设置页/登录页随时添加、编辑、删除、切换**；旧单 Key 自动迁移；鉴权失败只临时登出、不删其它 Key | `EncryptedSharedPreferences` + `SecureStore.apiKeys()` |
 
 ### 官方模型（2026-11）

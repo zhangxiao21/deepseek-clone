@@ -289,11 +289,21 @@ class Repository(
     }
 
     /** 附件名列表（仅本地 UI 展示，绝不进入 API 请求） */
-    fun parseAttachmentNames(json: String?): List<String> {
+    fun parseAttachmentNames(json: String?): List<String> = parseStringList(json)
+
+    /** 附件本地缓存路径（仅 UI 展示缩略图，绝不进 API 请求体） */
+    fun parseAttachmentPaths(json: String?): List<String> = parseStringList(json)
+
+    private fun parseStringList(json: String?): List<String> {
         if (json.isNullOrBlank()) return emptyList()
         return try {
             gson.fromJson<List<String>>(json, object : TypeToken<List<String>>() {}.type) ?: emptyList()
         } catch (_: Exception) { emptyList() }
+    }
+
+    /** 批量删除会话（复用单条删除，保证会话与其消息一起清理） */
+    suspend fun deleteSessions(ids: List<String>) = withContext(Dispatchers.IO) {
+        ids.forEach { dao.deleteSession(it) }
     }
 
     suspend fun deleteMessage(uid: Long) = withContext(Dispatchers.IO) {

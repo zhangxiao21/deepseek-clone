@@ -9,7 +9,7 @@ package com.deepseek.clone.core
 object ApiConfig {
     const val BASE_URL = "https://api.deepseek.com/"
     const val API_KEY_URL = "https://platform.deepseek.com/api_keys"
-    const val DEFAULT_USER_AGENT = "CyberWhale/1.2 (Android)"
+    const val DEFAULT_USER_AGENT = "CyberWhale/1.3 (Android)"
 
     // 官方模型 ID（2026-11）
     const val MODEL_FLASH = "deepseek-flash"           // V4.1 Flash，支持视觉/图片

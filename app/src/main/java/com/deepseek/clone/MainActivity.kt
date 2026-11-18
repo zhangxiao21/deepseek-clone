@@ -243,7 +243,8 @@ class MainActivity : ComponentActivity() {
             result.fold(
                 onSuccess = { fileId ->
                     val part = ContentPart(type = "file", fileId = fileId)
-                    runOnUiThread { chatViewModelRef?.addPendingPart(part, file.name) }
+                    // 本地缓存文件路径只用于 UI 缩略图预览，绝不进入 API 请求体
+                    runOnUiThread { chatViewModelRef?.addPendingPart(part, file.name, file.absolutePath) }
                     ok++
                 },
                 onFailure = { e ->
@@ -287,22 +288,22 @@ private fun AppNavigation(
     onViewModelReady: (ChatViewModel) -> Unit
 ) {
     var loggedIn by remember { mutableStateOf(store.isLoggedIn) }
-    // 官方默认首页是一个全新的空对话，而不是会话列表
+    // 官方首页：显示欢迎语的空状态，但不落库任何会话；发第一条消息时才创建
     var screen by remember { mutableStateOf<Screen>(Screen.Chat) }
     var chatSessionId by remember { mutableStateOf<String?>(null) }
     var chatTitle by remember { mutableStateOf("新对话") }
     var showPhotoPicker by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     val chatViewModel = remember { ChatViewModel(application) }
 
     LaunchedEffect(chatViewModel) { onViewModelReady(chatViewModel) }
 
-    // 进入 App / 登录后自动开一个新对话作为首页
-    LaunchedEffect(loggedIn, chatSessionId) {
-        if (loggedIn && chatSessionId == null) {
-            chatTitle = "新对话"
-            chatSessionId = repository.createLocalSession("新对话", store.defaultModelType)
-            screen = Screen.Chat
+    // 空首页发出第一条消息后，ViewModel 把新建的会话 id 同步回导航
+    LaunchedEffect(Unit) {
+        chatViewModel.startedSessionId.collect { id ->
+            if (id != null) {
+                chatSessionId = id
+                chatTitle = "新对话"
+            }
         }
     }
 
@@ -318,13 +319,11 @@ private fun AppNavigation(
         }
     }
 
+    /** 新对话 = 回到空首页，不预先创建会话记录 */
     fun openNewChat() {
-        scope.launch {
-            val id = repository.createLocalSession("新对话", store.defaultModelType)
-            chatSessionId = id
-            chatTitle = "新对话"
-            screen = Screen.Chat
-        }
+        chatSessionId = null
+        chatTitle = "新对话"
+        screen = Screen.Chat
     }
 
     if (!loggedIn) {
@@ -352,26 +351,30 @@ private fun AppNavigation(
                         screen = Screen.Chat
                     },
                     onNewChat = { openNewChat() },
-                    onSettings = { screen = Screen.Settings }
+                    onSettings = { screen = Screen.Settings },
+                    onSessionsDeleted = { ids ->
+                        if (chatSessionId != null && ids.contains(chatSessionId)) {
+                            chatSessionId = null
+                            chatTitle = "新对话"
+                        }
+                    }
                 )
             }
             Screen.Chat -> {
-                chatSessionId?.let { id ->
-                    ChatScreen(
-                        sessionId = id,
-                        sessionTitle = chatTitle,
-                        viewModel = chatViewModel,
-                        onBack = { screen = Screen.Sessions },
-                        onNewChat = { openNewChat() },
-                        onAttachFile = onAttachFile,
-                        onPickImages = { showPhotoPicker = true },
-                        onQuickImages = onImagesSelected,
-                        onTakePhoto = onTakePhoto,
-                        onVoiceInput = onVoiceInput,
-                        onVoiceStop = onVoiceStop,
-                        voiceListening = voiceListening
-                    )
-                }
+                ChatScreen(
+                    sessionId = chatSessionId,
+                    sessionTitle = chatTitle,
+                    viewModel = chatViewModel,
+                    onBack = { screen = Screen.Sessions },
+                    onNewChat = { openNewChat() },
+                    onAttachFile = onAttachFile,
+                    onPickImages = { showPhotoPicker = true },
+                    onQuickImages = onImagesSelected,
+                    onTakePhoto = onTakePhoto,
+                    onVoiceInput = onVoiceInput,
+                    onVoiceStop = onVoiceStop,
+                    voiceListening = voiceListening
+                )
             }
             Screen.Settings -> {
                 SettingsScreen(

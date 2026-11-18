@@ -56,7 +56,8 @@ fun SessionsScreen(
     repository: Repository,
     onOpenChat: (String, String) -> Unit,
     onNewChat: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onSessionsDeleted: (List<String>) -> Unit
 ) {
     val sessions by repository.observeSessions().collectAsState(initial = emptyList())
     var query by remember { mutableStateOf("") }
@@ -65,6 +66,9 @@ fun SessionsScreen(
     var renameText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<SessionEntity?>(null) }
     var sortAsc by remember { mutableStateOf(false) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var showBatchDelete by remember { mutableStateOf(false) }
+    val selectedIds = remember { mutableStateListOf<String>() }
     val scope = rememberCoroutineScope()
 
     val filtered = sessions.filter { it.title.contains(query, ignoreCase = true) }
@@ -73,10 +77,30 @@ fun SessionsScreen(
 
     Scaffold(
         bottomBar = {
-            DrawerUserRow(
-                nickname = store.activeApiKey()?.label ?: "我",
-                onSettings = onSettings
-            )
+            if (selectionMode) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { selectionMode = false; selectedIds.clear() }) {
+                        Text("取消")
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Button(
+                        onClick = { if (selectedIds.isNotEmpty()) showBatchDelete = true },
+                        enabled = selectedIds.isNotEmpty(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Error),
+                        shape = RoundedCornerShape(20.dp)
+                    ) {
+                        Text("删除 (${selectedIds.size})")
+                    }
+                }
+            } else {
+                DrawerUserRow(
+                    nickname = store.activeApiKey()?.label ?: "我",
+                    onSettings = onSettings
+                )
+            }
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -111,18 +135,40 @@ fun SessionsScreen(
                 }
             }
 
-            // 新对话
+            // 新对话 / 批量选择工具条
             Row(
-                modifier = Modifier.fillMaxWidth()
-                    .clickable(onClick = onNewChat)
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Add, null, tint = AppColors.Primary,
-                    modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(12.dp))
-                Text("新对话", style = MaterialTheme.typography.bodyLarge,
-                    color = AppColors.Primary, fontWeight = FontWeight.Medium)
+                if (selectionMode) {
+                    TextButton(onClick = {
+                        if (selectedIds.size == filtered.size) selectedIds.clear()
+                        else {
+                            selectedIds.clear()
+                            selectedIds.addAll(filtered.map { it.id })
+                        }
+                    }) { Text("全选") }
+                    Text("已选 ${selectedIds.size} 项",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = AppColors.TextPrimary,
+                        modifier = Modifier.weight(1f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    TextButton(onClick = { selectionMode = false; selectedIds.clear() }) {
+                        Text("完成")
+                    }
+                } else {
+                    Row(modifier = Modifier.weight(1f).clickable(onClick = onNewChat),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Add, null, tint = AppColors.Primary,
+                            modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("新对话", style = MaterialTheme.typography.bodyLarge,
+                            color = AppColors.Primary, fontWeight = FontWeight.Medium)
+                    }
+                    TextButton(onClick = { selectionMode = true; selectedIds.clear() }) {
+                        Text("选择")
+                    }
+                }
             }
 
             if (groups.isEmpty()) {
@@ -151,9 +197,23 @@ fun SessionsScreen(
                             }
                         }
                         items(group.items, key = { it.id }) { session ->
+                            val checked = selectedIds.contains(session.id)
                             SessionRow(
                                 session = session,
-                                onClick = { onOpenChat(session.id, session.title) },
+                                selectionMode = selectionMode,
+                                selected = checked,
+                                onClick = {
+                                    if (selectionMode) {
+                                        if (checked) selectedIds.remove(session.id)
+                                        else selectedIds.add(session.id)
+                                    } else {
+                                        onOpenChat(session.id, session.title)
+                                    }
+                                },
+                                onToggle = {
+                                    if (checked) selectedIds.remove(session.id)
+                                    else selectedIds.add(session.id)
+                                },
                                 onMore = { menuSession = session }
                             )
                         }
@@ -234,11 +294,33 @@ fun SessionsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch { repository.deleteSession(s.id) }
+                    onSessionsDeleted(listOf(s.id))
                     deleteTarget = null
                 }) { Text("删除", color = AppColors.Error) }
             },
             dismissButton = {
                 TextButton(onClick = { deleteTarget = null }) { Text("取消") }
+            }
+        )
+    }
+
+    if (showBatchDelete) {
+        AlertDialog(
+            onDismissRequest = { showBatchDelete = false },
+            title = { Text("删除 ${selectedIds.size} 个对话") },
+            text = { Text("将同时删除这些对话中的全部消息，此操作不可恢复。确定继续吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val ids = selectedIds.toList()
+                    scope.launch { repository.deleteSessions(ids) }
+                    onSessionsDeleted(ids)
+                    selectedIds.clear()
+                    selectionMode = false
+                    showBatchDelete = false
+                }) { Text("删除", color = AppColors.Error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchDelete = false }) { Text("取消") }
             }
         )
     }
@@ -269,28 +351,41 @@ private fun DrawerUserRow(nickname: String, onSettings: () -> Unit) {
 }
 
 @Composable
-private fun SessionRow(session: SessionEntity, onClick: () -> Unit, onMore: () -> Unit) {
+private fun SessionRow(
+    session: SessionEntity,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onToggle: () -> Unit,
+    onMore: () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 13.dp),
+            .padding(horizontal = 20.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (selectionMode) {
+            Checkbox(checked = selected, onCheckedChange = { onToggle() })
+            Spacer(Modifier.width(6.dp))
+        }
         Text(session.title, style = MaterialTheme.typography.bodyLarge,
             color = AppColors.TextPrimary, maxLines = 1,
             modifier = Modifier.weight(1f))
-        if (session.pinned) {
-            Icon(Icons.Default.PushPin, contentDescription = "置顶",
-                tint = AppColors.TextSecondary, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(8.dp))
-        }
-        if (session.source == "imported") {
-            Text("导入", style = MaterialTheme.typography.labelSmall,
-                color = AppColors.TextSecondary)
-        }
-        IconButton(onClick = onMore, modifier = Modifier.size(30.dp)) {
-            Icon(Icons.Default.MoreVert, contentDescription = "更多",
-                tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
+        if (!selectionMode) {
+            if (session.pinned) {
+                Icon(Icons.Default.PushPin, contentDescription = "置顶",
+                    tint = AppColors.TextSecondary, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(8.dp))
+            }
+            if (session.source == "imported") {
+                Text("导入", style = MaterialTheme.typography.labelSmall,
+                    color = AppColors.TextSecondary)
+            }
+            IconButton(onClick = onMore, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.MoreVert, contentDescription = "更多",
+                    tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
+            }
         }
     }
 }
