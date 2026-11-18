@@ -67,13 +67,13 @@ data class ResponseMessage(
     val role: String? = "assistant",
     val content: String? = null,
     @SerializedName("reasoning_content") val reasoningContent: String? = null,
-    val annotations: List<Annotation>? = null,
+    val annotations: List<CitationAnnotation>? = null,
     @SerializedName("server_tool_calls") val serverToolCalls: List<ServerToolStep>? = null,
     val title: String? = null,
     val refusal: String? = null
 )
 
-data class Annotation(
+data class CitationAnnotation(
     val type: String? = null,
     @SerializedName("url_citation") val urlCitation: UrlCitation? = null
 )
@@ -116,7 +116,7 @@ data class Delta(
     val role: String? = null,
     val content: String? = null,
     @SerializedName("reasoning_content") val reasoningContent: String? = null,
-    val annotations: List<Annotation>? = null,
+    val annotations: List<CitationAnnotation>? = null,
     @SerializedName("server_tool_calls") val serverToolCalls: List<ServerToolStep>? = null,
     @SerializedName("server_tool_event") val serverToolEvent: ServerToolEvent? = null,
     val title: String? = null

@@ -110,7 +110,7 @@ class ChatZipManager(private val context: Context, private val dao: ChatDao) {
                     .mapNotNull { it.content }.joinToString("")
                 val thinking = m.fragments.filter { it.type == "THINK" }
                     .mapNotNull { it.content }.joinToString("").ifEmpty { null }
-                if (content.isEmpty() && thinking.isEmpty() && !isError) continue
+                if (content.isEmpty() && thinking.isNullOrEmpty() && !isError) continue
                 mid++
                 entities.add(
                     MessageEntity(

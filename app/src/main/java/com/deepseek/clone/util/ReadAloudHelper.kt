@@ -7,11 +7,17 @@ import java.util.Locale
 
 /** 朗读助手：TextToSpeech 系统合成，中文优先 */
 class ReadAloudHelper(context: Context) {
-    private var tts: TextToSpeech? = TextToSpeech(context) { status ->
-        if (status == TextToSpeech.SUCCESS) {
-            val result = tts?.setLanguage(Locale.CHINA)
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                tts?.setLanguage(Locale.US)
+    private var tts: TextToSpeech? = null
+
+    init {
+        // 用局部引用接收回调，避免在属性初始化器中引用自身
+        tts = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                val engine = tts
+                val result = engine?.setLanguage(Locale.CHINA)
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    engine?.setLanguage(Locale.US)
+                }
             }
         }
     }
