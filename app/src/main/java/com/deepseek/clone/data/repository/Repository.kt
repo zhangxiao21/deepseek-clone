@@ -58,6 +58,23 @@ class Repository(
         store.clearAll()
     }
 
+    /**
+     * 手动重新提炼长期记忆：扫描最近若干会话的历史消息，分批抽取后合并。
+     * 用于补齐早期版本（单轮 300 token / 40 条上限）漏记的信息。
+     */
+    suspend fun rebuildMemoryFromHistory(): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val sessions = dao.getSessions(ContextEngine.REBUILD_SESSIONS)
+            val all = ArrayList<MessageEntity>()
+            sessions.forEach { s ->
+                all.addAll(dao.getMessages(s.id).takeLast(ContextEngine.REBUILD_MESSAGES_PER_SESSION))
+            }
+            Result.success(context.rebuildFromHistory(all).size)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     // ---------- 会话（纯本地） ----------
 
     fun observeSessions(): Flow<List<SessionEntity>> = dao.observeSessions()

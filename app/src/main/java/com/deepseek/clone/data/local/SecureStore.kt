@@ -5,6 +5,19 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
 import com.deepseek.clone.core.ApiConfig
 import com.deepseek.clone.core.ClientProfile
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+
+/** 一条已保存的 API Key（备注名 + 密钥本体） */
+data class ApiKeyEntry(
+    val id: String,
+    val label: String,
+    val key: String
+) {
+    /** 只在 UI 上展示的脱敏形式，绝不打印完整密钥 */
+    val masked: String
+        get() = if (key.length > 10) "${key.take(6)}••••${key.takeLast(4)}" else "••••••••"
+}
 
 /**
  * 安全存储：API Key 与设置用 EncryptedSharedPreferences（底层 Android Keystore）加密。
@@ -12,9 +25,13 @@ import com.deepseek.clone.core.ClientProfile
  *
  * 依赖固定为 security-crypto 1.0.0：该版本只有 MasterKeys 与
  * create(fileName, masterKeyAlias, context, ...) 旧签名；MasterKey / create(context, ...) 属 1.1.0+。
+ *
+ * 多 Key：api_keys 存 JSON 数组，active_key_id 指向当前使用的一条；
+ * 旧版本只存单个 api_key，首次读取时自动迁移为「默认密钥」，升级不丢登录态。
  */
 class SecureStore(context: Context) {
 
+    private val gson = Gson()
     private val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
 
     private val prefs = EncryptedSharedPreferences.create(
@@ -25,13 +42,122 @@ class SecureStore(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
-    /** 官方 API Key（sk-...）。沿用 token 字段名以兼容旧数据结构。 */
-    var token: String?
-        get() = prefs.getString(KEY_TOKEN, null)
-        set(value) {
-            if (value == null) prefs.edit().remove(KEY_TOKEN).apply()
-            else prefs.edit().putString(KEY_TOKEN, value).apply()
+    // ---------- 多 API Key ----------
+
+    /** 旧单 Key → 列表的惰性迁移（只执行一次） */
+    private fun ensureMigrated() {
+        if (prefs.contains(KEY_API_KEYS)) return
+        val legacy = prefs.getString(KEY_TOKEN, null).orEmpty()
+        val list = if (legacy.isBlank()) emptyList()
+        else listOf(ApiKeyEntry(LEGACY_KEY_ID, "默认密钥", legacy))
+        prefs.edit()
+            .putString(KEY_API_KEYS, gson.toJson(list))
+            .putString(KEY_ACTIVE_KEY, if (list.isEmpty()) "" else list[0].id)
+            .apply()
+    }
+
+    private fun readEntries(): MutableList<ApiKeyEntry> {
+        ensureMigrated()
+        return try {
+            gson.fromJson<MutableList<ApiKeyEntry>>(
+                prefs.getString(KEY_API_KEYS, "[]"),
+                object : TypeToken<MutableList<ApiKeyEntry>>() {}.type
+            ) ?: mutableListOf()
+        } catch (_: Exception) { mutableListOf() }
+    }
+
+    private fun writeEntries(list: List<ApiKeyEntry>) {
+        prefs.edit().putString(KEY_API_KEYS, gson.toJson(list)).apply()
+    }
+
+    fun apiKeys(): List<ApiKeyEntry> = readEntries().toList()
+
+    private var activeKeyId: String
+        get() {
+            ensureMigrated()
+            return prefs.getString(KEY_ACTIVE_KEY, "").orEmpty()
         }
+        set(value) = prefs.edit().putString(KEY_ACTIVE_KEY, value).apply()
+
+    fun activeApiKey(): ApiKeyEntry? {
+        val list = apiKeys()
+        val id = activeKeyId
+        return list.firstOrNull { it.id == id } ?: list.firstOrNull()
+    }
+
+    fun setActiveApiKey(id: String) {
+        if (apiKeys().any { it.id == id }) {
+            activeKeyId = id
+            authBlocked = false
+            // 同步旧字段，保证任何直接读 api_key 的老代码拿到的是当前激活的 Key
+            activeApiKey()?.let { prefs.edit().putString(KEY_TOKEN, it.key).apply() }
+        }
+    }
+
+    fun addApiKey(label: String, key: String): String {
+        val list = readEntries()
+        val id = "key-" + java.util.UUID.randomUUID().toString()
+        list.add(ApiKeyEntry(id, label.trim().ifBlank { "密钥 ${list.size + 1}" }, key.trim()))
+        writeEntries(list)
+        setActiveApiKey(id)
+        return id
+    }
+
+    fun updateApiKey(id: String, label: String, key: String) {
+        val list = readEntries()
+        val idx = list.indexOfFirst { it.id == id }
+        if (idx >= 0) {
+            list[idx] = list[idx].copy(label = label.trim(), key = key.trim())
+            writeEntries(list)
+            if (activeKeyId == id) prefs.edit().putString(KEY_TOKEN, key.trim()).apply()
+        }
+    }
+
+    fun removeApiKey(id: String) {
+        val list = readEntries()
+        list.removeAll { it.id == id }
+        writeEntries(list)
+        if (activeKeyId == id) {
+            val next = list.firstOrNull()
+            activeKeyId = next?.id.orEmpty()
+            prefs.edit().putString(KEY_TOKEN, next?.key.orEmpty()).apply()
+        }
+        if (list.isEmpty()) authBlocked = false
+    }
+
+    /** 当前生效的 API Key（sk-...）。沿用 token 字段名以兼容旧数据结构。 */
+    var token: String?
+        get() = if (authBlocked) null else activeApiKey()?.key?.takeIf { it.isNotBlank() }
+            ?: prefs.getString(KEY_TOKEN, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            authBlocked = false
+            val clean = value?.trim().orEmpty()
+            if (clean.isBlank()) {
+                prefs.edit().remove(KEY_TOKEN).apply()
+                return
+            }
+            val list = readEntries()
+            val id = activeKeyId
+            val idx = list.indexOfFirst { it.id == id }
+            if (idx >= 0) {
+                list[idx] = list[idx].copy(key = clean)
+            } else {
+                val entry = ApiKeyEntry(
+                    "key-" + java.util.UUID.randomUUID().toString(), "默认密钥", clean
+                )
+                list.add(0, entry)
+                activeKeyId = entry.id
+            }
+            writeEntries(list)
+            prefs.edit().putString(KEY_TOKEN, clean).apply()
+        }
+
+    /** 鉴权失败后临时登出（不删除已保存的其它 Key，切换即可恢复） */
+    var authBlocked: Boolean
+        get() = prefs.getBoolean(KEY_AUTH_BLOCKED, false)
+        set(value) = prefs.edit().putBoolean(KEY_AUTH_BLOCKED, value).apply()
+
+    // ---------- 常规设置 ----------
 
     var defaultModelType: String
         get() = prefs.getString(KEY_MODEL, ApiConfig.MODEL_FLASH) ?: ApiConfig.MODEL_FLASH
@@ -44,34 +170,30 @@ class SecureStore(context: Context) {
 
     // ---------- 长期记忆 / 上下文压缩 / CoT ----------
 
-    /** 长期记忆开关：跨会话记住用户偏好与事实，并注入 system prompt */
     var memoryEnabled: Boolean
         get() = prefs.getBoolean(KEY_MEMORY_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_MEMORY_ENABLED, value).apply()
 
-    /** 长期记忆事实条目（Gson 序列化的 List<String>） */
     var memoryFactsJson: String
         get() = prefs.getString(KEY_MEMORY_FACTS, "[]") ?: "[]"
         set(value) = prefs.edit().putString(KEY_MEMORY_FACTS, value).apply()
 
-    /** 上下文压缩开关：历史过长时把较旧轮次压成摘要，保留最近若干轮原文 */
     var compressionEnabled: Boolean
         get() = prefs.getBoolean(KEY_COMPRESSION_ENABLED, true)
         set(value) = prefs.edit().putBoolean(KEY_COMPRESSION_ENABLED, value).apply()
 
-    /** 是否在消息中展示完整思维链（CoT） */
     var cotVisible: Boolean
         get() = prefs.getBoolean(KEY_COT_VISIBLE, true)
         set(value) = prefs.edit().putBoolean(KEY_COT_VISIBLE, value).apply()
 
     var isLoggedIn: Boolean
         get() = !token.isNullOrBlank()
-        set(value) { if (!value) token = null }
+        set(value) { if (!value) authBlocked = true }
 
     fun currentProfile(): ClientProfile = ClientProfile()
 
     fun clearAll() {
-        // 退出登录只清鉴权信息，外观偏好与长期记忆属于用户数据，全部保留
+        // 退出登录清空全部 Key；外观偏好与长期记忆属于用户数据，全部保留
         val keepTheme = themeMode
         val keepMemoryEnabled = memoryEnabled
         val keepMemoryFacts = memoryFactsJson
@@ -89,6 +211,10 @@ class SecureStore(context: Context) {
 
     companion object {
         private const val KEY_TOKEN = "api_key"
+        private const val KEY_API_KEYS = "api_keys"
+        private const val KEY_ACTIVE_KEY = "active_key_id"
+        private const val KEY_AUTH_BLOCKED = "auth_blocked"
+        private const val LEGACY_KEY_ID = "key-default"
         private const val KEY_MODEL = "default_model"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_MEMORY_ENABLED = "memory_enabled"

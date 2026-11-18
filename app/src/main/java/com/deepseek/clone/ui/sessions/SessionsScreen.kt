@@ -1,27 +1,58 @@
 package com.deepseek.clone.ui.sessions
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.deepseek.clone.R
+import com.deepseek.clone.data.local.SecureStore
 import com.deepseek.clone.data.local.SessionEntity
 import com.deepseek.clone.data.repository.Repository
 import com.deepseek.clone.ui.theme.AppColors
 import kotlinx.coroutines.launch
+import java.util.Calendar
+import java.util.Date
+
+private data class SessionGroup(val label: String, val items: List<SessionEntity>)
+
+/** 官方抽屉风格：按「30 天内 / 年月」分组 */
+private fun groupSessions(list: List<SessionEntity>): List<SessionGroup> {
+    val now = System.currentTimeMillis()
+    val cutoff = 30L * 24 * 60 * 60 * 1000
+    val recent = list.filter { now - it.updatedAt <= cutoff }
+    val older = list.filter { now - it.updatedAt > cutoff }
+
+    val result = mutableListOf<SessionGroup>()
+    if (recent.isNotEmpty()) result += SessionGroup("30 天内", recent)
+
+    val byMonth = older.groupBy { s ->
+        val c = Calendar.getInstance().apply { timeInMillis = s.updatedAt }
+        c.get(Calendar.YEAR) * 12 + c.get(Calendar.MONTH)
+    }
+    byMonth.keys.sortedDescending().forEach { key ->
+        val year = key / 12
+        val month = key % 12 + 1
+        result += SessionGroup("${year}年${month}月", byMonth[key].orEmpty())
+    }
+    return result
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionsScreen(
+    store: SecureStore,
     repository: Repository,
     onOpenChat: (String, String) -> Unit,
     onNewChat: () -> Unit,
@@ -33,68 +64,106 @@ fun SessionsScreen(
     var renameTarget by remember { mutableStateOf<SessionEntity?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<SessionEntity?>(null) }
+    var sortAsc by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val filtered = sessions.filter { it.title.contains(query, ignoreCase = true) }
+        .let { if (sortAsc) it.sortedBy { s -> s.updatedAt } else it }
+    val groups = groupSessions(filtered)
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "设置")
-                    }
-                },
-                colors = TopAppBarDefaults.smallTopAppBarColors(
-                    containerColor = AppColors.Primary,
-                    titleContentColor = AppColors.OnPrimary,
-                    actionIconContentColor = AppColors.OnPrimary
-                )
+        bottomBar = {
+            DrawerUserRow(
+                nickname = store.activeApiKey()?.label ?: "我",
+                onSettings = onSettings
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = onNewChat, containerColor = AppColors.Primary) {
-                Icon(Icons.Default.Add, contentDescription = "新对话",
-                    tint = AppColors.OnPrimary)
-            }
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text(stringResource(R.string.search_sessions)) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true,
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
-            )
+            // 顶部搜索框（官方抽屉样式：灰色胶囊 + 放大镜）
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.weight(1f).height(48.dp)
+                        .background(AppColors.Surface, RoundedCornerShape(24.dp)),
+                    placeholder = {
+                        Text("搜索对话内容...", color = AppColors.TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium)
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, null, tint = AppColors.TextSecondary)
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(24.dp),
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        focusedBorderColor = AppColors.Surface,
+                        unfocusedBorderColor = AppColors.Surface
+                    )
+                )
+                Spacer(Modifier.width(10.dp))
+                IconButton(onClick = { sortAsc = !sortAsc }) {
+                    Icon(Icons.Default.Tune, contentDescription = "排序",
+                        tint = AppColors.TextSecondary)
+                }
+            }
 
-            if (filtered.isEmpty()) {
+            // 新对话
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .clickable(onClick = onNewChat)
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Add, null, tint = AppColors.Primary,
+                    modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(12.dp))
+                Text("新对话", style = MaterialTheme.typography.bodyLarge,
+                    color = AppColors.Primary, fontWeight = FontWeight.Medium)
+            }
+
+            if (groups.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("💬", style = MaterialTheme.typography.displayMedium)
-                        Spacer(Modifier.height(8.dp))
-                        Text(stringResource(R.string.no_sessions), color = AppColors.TextSecondary)
-                    }
+                    Text(if (query.isEmpty()) "还没有对话" else "没有找到相关对话",
+                        color = AppColors.TextSecondary)
                 }
             } else {
-                LazyColumn(contentPadding = PaddingValues(bottom = 80.dp)) {
-                    items(filtered, key = { it.id }) { session ->
-                        SessionRow(
-                            session = session,
-                            onClick = { onOpenChat(session.id, session.title) },
-                            onMore = { menuSession = session }
-                        )
-                        Divider(color = AppColors.Divider)
+                LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+                    groups.forEachIndexed { groupIndex, group ->
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(group.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = AppColors.TextSecondary)
+                                Spacer(Modifier.weight(1f))
+                                if (groupIndex == 0) {
+                                    Icon(Icons.Default.Sort, contentDescription = null,
+                                        tint = AppColors.TextSecondary,
+                                        modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                        items(group.items, key = { it.id }) { session ->
+                            SessionRow(
+                                session = session,
+                                onClick = { onOpenChat(session.id, session.title) },
+                                onMore = { menuSession = session }
+                            )
+                        }
                     }
                 }
             }
         }
     }
 
-    // 会话操作菜单（Material3 1.0.0 无 ModalBottomSheet / 新版 ListItem，改用 AlertDialog）
+    // 会话操作菜单
     menuSession?.let { s ->
         AlertDialog(
             onDismissRequest = { menuSession = null },
@@ -120,7 +189,7 @@ fun SessionsScreen(
                     ) {
                         Icon(Icons.Default.Edit, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.rename))
+                        Text("重命名")
                     }
                     TextButton(
                         onClick = { deleteTarget = s; menuSession = null },
@@ -129,87 +198,104 @@ fun SessionsScreen(
                         Icon(Icons.Default.Delete, null, tint = AppColors.Error,
                             modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.delete), color = AppColors.Error)
+                        Text("删除", color = AppColors.Error)
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { menuSession = null }) {
-                    Text(stringResource(R.string.cancel))
-                }
+                TextButton(onClick = { menuSession = null }) { Text("取消") }
             }
         )
     }
 
-    // 重命名对话框
     renameTarget?.let { s ->
         var text by remember { mutableStateOf(renameText) }
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text(stringResource(R.string.rename)) },
-            text = {
-                OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true)
-            },
+            title = { Text("重命名") },
+            text = { OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true) },
             confirmButton = {
                 TextButton(onClick = {
                     if (text.isNotBlank()) scope.launch { repository.renameSession(s.id, text) }
                     renameTarget = null
-                }) { Text(stringResource(R.string.ok)) }
+                }) { Text("确定") }
             },
             dismissButton = {
-                TextButton(onClick = { renameTarget = null }) { Text(stringResource(R.string.cancel)) }
+                TextButton(onClick = { renameTarget = null }) { Text("取消") }
             }
         )
     }
 
-    // 删除确认
     deleteTarget?.let { s ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text(stringResource(R.string.delete)) },
-            text = { Text(stringResource(R.string.delete_session_confirm)) },
+            title = { Text("删除对话") },
+            text = { Text("确定删除「${s.title}」吗？此操作不可恢复。") },
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch { repository.deleteSession(s.id) }
                     deleteTarget = null
-                }) { Text(stringResource(R.string.delete), color = AppColors.Error) }
+                }) { Text("删除", color = AppColors.Error) }
             },
             dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.cancel)) }
+                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
             }
         )
     }
 }
 
 @Composable
-private fun SessionRow(session: SessionEntity, onClick: () -> Unit, onMore: () -> Unit) {
+private fun DrawerUserRow(nickname: String, onSettings: () -> Unit) {
+    Divider(color = AppColors.Divider)
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(14.dp),
+        modifier = Modifier.fillMaxWidth()
+            .background(AppColors.Background)
+            .clickable(onClick = onSettings)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Default.ChatBubbleOutline, contentDescription = null,
-            tint = AppColors.Primary, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(session.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
-            Spacer(Modifier.height(2.dp))
-            Text(formatDate(session.updatedAt), style = MaterialTheme.typography.labelSmall,
-                color = AppColors.TextSecondary)
+        Box(
+            modifier = Modifier.size(38.dp).clip(CircleShape).background(AppColors.PrimaryLight),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("🐋", style = MaterialTheme.typography.titleMedium)
         }
+        Spacer(Modifier.width(12.dp))
+        Text(nickname, style = MaterialTheme.typography.bodyLarge,
+            color = AppColors.TextPrimary, modifier = Modifier.weight(1f), maxLines = 1)
+        Icon(Icons.Default.MoreHoriz, contentDescription = "设置",
+            tint = AppColors.TextSecondary)
+    }
+}
+
+@Composable
+private fun SessionRow(session: SessionEntity, onClick: () -> Unit, onMore: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(session.title, style = MaterialTheme.typography.bodyLarge,
+            color = AppColors.TextPrimary, maxLines = 1,
+            modifier = Modifier.weight(1f))
         if (session.pinned) {
             Icon(Icons.Default.PushPin, contentDescription = "置顶",
-                tint = AppColors.Primary, modifier = Modifier.size(16.dp))
+                tint = AppColors.TextSecondary, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(8.dp))
         }
         if (session.source == "imported") {
-            Text("导入", style = MaterialTheme.typography.labelSmall, color = AppColors.TextSecondary)
+            Text("导入", style = MaterialTheme.typography.labelSmall,
+                color = AppColors.TextSecondary)
         }
-        IconButton(onClick = onMore, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = onMore, modifier = Modifier.size(30.dp)) {
             Icon(Icons.Default.MoreVert, contentDescription = "更多",
-                tint = AppColors.TextSecondary)
+                tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
         }
     }
 }
 
+@Suppress("unused")
 private fun formatDate(ts: Long): String {
     val now = System.currentTimeMillis()
     val days = (now - ts) / 86400000
@@ -217,6 +303,6 @@ private fun formatDate(ts: Long): String {
         days < 1 -> "今天"
         days < 2 -> "昨天"
         days < 7 -> "$days 天前"
-        else -> java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date(ts))
+        else -> java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(Date(ts))
     }
 }

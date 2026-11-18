@@ -153,6 +153,27 @@ fun LoginScreen(
             Text("没有 API Key？前往 DeepSeek 开放平台创建")
         }
 
+        // 已保存多个 Key 时（例如某个 Key 额度用尽被临时登出），可直接切回其它 Key
+        val savedKeys = store.apiKeys()
+        if (savedKeys.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text("或使用已保存的密钥", style = MaterialTheme.typography.labelMedium,
+                color = AppColors.TextSecondary)
+            Spacer(Modifier.height(6.dp))
+            savedKeys.forEach { entry ->
+                OutlinedButton(
+                    onClick = {
+                        store.setActiveApiKey(entry.id)
+                        onLoginSuccess()
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("${entry.label}  ${entry.masked}", maxLines = 1)
+                }
+            }
+        }
+
         Spacer(Modifier.height(16.dp))
         Text(
             "API Key 保存在本机加密存储中，不会上传到任何第三方。\n调用 API 产生的费用由你的 DeepSeek 账户承担。",

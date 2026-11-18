@@ -3,9 +3,12 @@ package com.deepseek.clone.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,6 +33,7 @@ import com.deepseek.clone.data.local.MessageEntity
 import com.deepseek.clone.data.model.ContentPart
 import com.deepseek.clone.data.model.ServerToolEvent
 import com.deepseek.clone.data.model.UrlCitation
+import com.deepseek.clone.ui.picker.RecentImagesStrip
 import com.deepseek.clone.ui.theme.AppColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -39,10 +43,14 @@ fun ChatScreen(
     sessionTitle: String,
     viewModel: ChatViewModel,
     onBack: () -> Unit,
+    onNewChat: () -> Unit,
     onAttachFile: () -> Unit,
-    onPickImage: () -> Unit,
+    onPickImages: () -> Unit,
+    onQuickImages: (List<Uri>) -> Unit,
     onTakePhoto: () -> Unit,
-    onVoiceInput: (callback: (String) -> Unit) -> Unit
+    onVoiceInput: (callback: (String) -> Unit) -> Unit,
+    onVoiceStop: () -> Unit,
+    voiceListening: Boolean
 ) {
     val context = LocalContext.current
     val messages by viewModel.messages.collectAsState()
@@ -94,44 +102,62 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column(modifier = Modifier.clickable { showRename = true }) {
-                        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                        Text(ModelOption.find(model).label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = AppColors.TextSecondary)
+                    // 官方空对话页顶栏不放标题；进入对话后才显示，点击可切换模型 / 重命名
+                    if (messages.isNotEmpty()) {
+                        Box {
+                            Column(modifier = Modifier.clickable { showModelMenu = true }) {
+                                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                                Text(ModelOption.find(model).label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = AppColors.TextSecondary)
+                            }
+                            DropdownMenu(expanded = showModelMenu,
+                                onDismissRequest = { showModelMenu = false }) {
+                                ModelOption.ALL.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(option.label)
+                                                Text(option.desc,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = AppColors.TextSecondary)
+                                            }
+                                        },
+                                        onClick = {
+                                            viewModel.setModel(option.id)
+                                            showModelMenu = false
+                                        },
+                                        leadingIcon = {
+                                            if (model == option.id) Icon(Icons.Default.Check, null,
+                                                tint = AppColors.Primary)
+                                        }
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("重命名对话") },
+                                    onClick = { showModelMenu = false; showRename = true }
+                                )
+                            }
+                        }
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.Default.Menu, contentDescription = "会话列表")
                     }
                 },
                 actions = {
-                    Box {
-                        IconButton(onClick = { showModelMenu = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "模型")
-                        }
-                        DropdownMenu(expanded = showModelMenu, onDismissRequest = { showModelMenu = false }) {
-                            ModelOption.ALL.forEach { option ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(option.label)
-                                            Text(option.desc, style = MaterialTheme.typography.labelSmall,
-                                                color = AppColors.TextSecondary)
-                                        }
-                                    },
-                                    onClick = {
-                                        viewModel.setModel(option.id)
-                                        showModelMenu = false
-                                    },
-                                    leadingIcon = {
-                                        if (model == option.id) Icon(Icons.Default.Check, null,
-                                            tint = AppColors.Primary)
-                                    }
-                                )
-                            }
-                        }
+                    IconButton(onClick = { viewModel.setCotVisible(!cotVisible) }) {
+                        Icon(
+                            if (cotVisible) Icons.Default.VisibilityOff
+                            else Icons.Default.Visibility,
+                            contentDescription = if (cotVisible) "隐藏思维链" else "显示思维链",
+                            tint = AppColors.TextPrimary
+                        )
+                    }
+                    IconButton(onClick = onNewChat) {
+                        Icon(Icons.Default.Add, contentDescription = "新对话",
+                            tint = AppColors.TextPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.smallTopAppBarColors(containerColor = AppColors.Background)
@@ -200,9 +226,12 @@ fun ChatScreen(
                 },
                 onStop = { viewModel.stop() },
                 onAttach = onAttachFile,
-                onImage = onPickImage,
+                onImages = onPickImages,
+                onQuickImages = onQuickImages,
                 onCamera = onTakePhoto,
-                onVoice = { onVoiceInput { text -> input = if (input.isBlank()) text else "$input $text" } }
+                onVoice = { onVoiceInput { text -> input = if (input.isBlank()) text else "$input $text" } },
+                onVoiceStop = onVoiceStop,
+                voiceListening = voiceListening
             )
         }
     }
@@ -230,17 +259,32 @@ fun ChatScreen(
 
 @Composable
 private fun EmptyChatHint() {
+    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+    val greeting = when {
+        hour < 6 -> "夜深了"
+        hour < 11 -> "早上好"
+        hour < 14 -> "中午好"
+        hour < 18 -> "下午好"
+        else -> "晚上好"
+    }
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 90.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 110.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("🐋", style = MaterialTheme.typography.displayMedium)
-        Spacer(Modifier.height(12.dp))
-        Text("我是赛博大鲸鱼，很高兴见到你", style = MaterialTheme.typography.titleMedium,
+        Box(
+            modifier = Modifier.size(56.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(AppColors.Primary),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("🐋", style = MaterialTheme.typography.headlineMedium,
+                color = AppColors.OnPrimary)
+        }
+        Spacer(Modifier.height(22.dp))
+        Text("$greeting，有什么我能帮你的吗？",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
             color = AppColors.TextPrimary)
-        Spacer(Modifier.height(6.dp))
-        Text("可以问我任何问题，或开启深度思考 / 联网搜索", style = MaterialTheme.typography.bodySmall,
-            color = AppColors.TextSecondary)
     }
 }
 
@@ -459,103 +503,221 @@ private fun InputBar(
     onSend: () -> Unit,
     onStop: () -> Unit,
     onAttach: () -> Unit,
-    onImage: () -> Unit,
+    onImages: () -> Unit,
+    onQuickImages: (List<Uri>) -> Unit,
     onCamera: () -> Unit,
-    onVoice: () -> Unit
+    onVoice: () -> Unit,
+    onVoiceStop: () -> Unit,
+    voiceListening: Boolean
 ) {
-    Surface(modifier = Modifier.fillMaxWidth(), shadowElevation = 8.dp, color = AppColors.Background) {
+    var showAttachPanel by remember { mutableStateOf(false) }
+    val canSend = input.isNotBlank() || pendingParts.isNotEmpty()
+
+    Surface(modifier = Modifier.fillMaxWidth(), color = AppColors.Background) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            // 待发送附件（可单独移除）；上传完成即出现，发送按钮随之解禁
-            if (pendingParts.isNotEmpty()) {
+            // 待发送附件：横排可移除的小胶囊，多图时一眼看清选了几张
+            if (pendingNames.isNotEmpty()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("📎 ${pendingParts.size} 个附件", style = MaterialTheme.typography.labelSmall,
-                        color = AppColors.Primary)
-                }
-                pendingNames.forEachIndexed { index, name ->
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)) {
-                        Text(name, style = MaterialTheme.typography.labelSmall,
-                            color = AppColors.TextSecondary, maxLines = 1,
-                            modifier = Modifier.weight(1f))
-                        IconButton(onClick = { onRemovePending(index) }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "移除附件",
-                                tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                    pendingNames.take(4).forEachIndexed { index, name ->
+                        Row(
+                            modifier = Modifier
+                                .padding(end = 6.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(AppColors.SurfaceVariant)
+                                .padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("📎 $name", style = MaterialTheme.typography.labelSmall,
+                                color = AppColors.TextPrimary, maxLines = 1,
+                                modifier = Modifier.widthIn(max = 110.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Icon(
+                                Icons.Default.Close, contentDescription = "移除",
+                                tint = AppColors.TextSecondary,
+                                modifier = Modifier.size(13.dp).clickable { onRemovePending(index) }
+                            )
                         }
+                    }
+                    if (pendingNames.size > 4) {
+                        Text("+${pendingNames.size - 4}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = AppColors.TextSecondary)
                     }
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                FilterChip(
-                    selected = thinkingEnabled,
-                    onClick = { onThinkingToggle(!thinkingEnabled) },
-                    label = { Text("深度思考") },
-                    leadingIcon = { Icon(Icons.Default.Psychology, null, modifier = Modifier.size(16.dp)) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = AppColors.PrimaryLight,
-                        selectedLabelColor = AppColors.Primary)
-                )
-                Spacer(Modifier.width(8.dp))
-                FilterChip(
-                    selected = searchEnabled,
-                    onClick = { onSearchToggle(!searchEnabled) },
-                    label = { Text("联网搜索") },
-                    leadingIcon = { Icon(Icons.Default.Public, null, modifier = Modifier.size(16.dp)) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = AppColors.PrimaryLight,
-                        selectedLabelColor = AppColors.Primary)
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.Bottom) {
-                IconButton(onClick = onAttach, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.AttachFile, contentDescription = "文件", tint = AppColors.TextSecondary)
-                }
+            // 官方风格：一整块圆角胶囊，输入区在上、功能 chips 在下
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(AppColors.Surface)
+                    .border(BorderStroke(1.dp, AppColors.Divider), RoundedCornerShape(26.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            ) {
                 OutlinedTextField(
                     value = input,
                     onValueChange = onInputChange,
-                    modifier = Modifier.weight(1f).heightIn(min = 44.dp, max = 120.dp),
-                    placeholder = { Text(stringResource(R.string.chat_hint)) },
-                    shape = RoundedCornerShape(22.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp, max = 110.dp),
+                    placeholder = {
+                        Text("发消息或按住说话", color = AppColors.TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium)
+                    },
                     maxLines = 4,
+                    shape = RoundedCornerShape(18.dp),
                     colors = TextFieldDefaults.outlinedTextFieldColors(
-                        focusedBorderColor = AppColors.Primary,
-                        unfocusedBorderColor = AppColors.Divider)
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent
+                    )
                 )
-                Spacer(Modifier.width(4.dp))
-                if (isGenerating) {
-                    FilledIconButton(onClick = onStop,
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = AppColors.Primary)) {
-                        Icon(Icons.Default.Stop, contentDescription = "停止")
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PillChip(
+                        selected = thinkingEnabled,
+                        icon = Icons.Default.Psychology,
+                        label = "深度思考",
+                        onClick = { onThinkingToggle(!thinkingEnabled) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    PillChip(
+                        selected = searchEnabled,
+                        icon = Icons.Default.Public,
+                        label = "智能搜索",
+                        onClick = { onSearchToggle(!searchEnabled) }
+                    )
+                    Spacer(Modifier.weight(1f))
+
+                    if (isGenerating) {
+                        CircleButton(Icons.Default.Stop, "停止生成", onStop, filled = true)
+                        Spacer(Modifier.width(8.dp))
+                    } else if (canSend) {
+                        CircleButton(Icons.Filled.Send, "发送", onSend, filled = true)
+                        Spacer(Modifier.width(8.dp))
                     }
-                } else {
-                    FilledIconButton(
-                        onClick = onSend,
-                        enabled = input.isNotBlank() || pendingParts.isNotEmpty(),
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = AppColors.Primary)
-                    ) {
-                        Icon(Icons.Filled.Send, contentDescription = "发送")
+
+                    CircleButton(
+                        icon = if (showAttachPanel) Icons.Default.Close else Icons.Default.Add,
+                        description = if (showAttachPanel) "收起附件面板" else "添加图片或文件",
+                        onClick = { showAttachPanel = !showAttachPanel }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    CircleButton(
+                        icon = if (voiceListening) Icons.Default.Close else Icons.Default.Mic,
+                        description = if (voiceListening) "结束语音输入" else "语音输入",
+                        onClick = { if (voiceListening) onVoiceStop() else onVoice() },
+                        filled = voiceListening
+                    )
+                }
+            }
+
+            // 「+」展开：官方风格的最近图片横条 + 拍照 / 相册 / 文件 三个大按钮
+            if (showAttachPanel) {
+                RecentImagesStrip(onPick = { uri -> onQuickImages(listOf(uri)) })
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    AttachTile(Icons.Default.PhotoCamera, "拍照",
+                        modifier = Modifier.weight(1f)) {
+                        showAttachPanel = false; onCamera()
+                    }
+                    AttachTile(Icons.Default.Image, "相册",
+                        modifier = Modifier.weight(1f)) {
+                        showAttachPanel = false; onImages()
+                    }
+                    AttachTile(Icons.Default.AttachFile, "文件",
+                        modifier = Modifier.weight(1f)) {
+                        showAttachPanel = false; onAttach()
                     }
                 }
             }
-            Row {
-                IconButton(onClick = onImage, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Image, contentDescription = "图片",
-                        tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
-                }
-                IconButton(onClick = onCamera, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.PhotoCamera, contentDescription = "拍照",
-                        tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
-                }
-                IconButton(onClick = onVoice, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Mic, contentDescription = "语音",
-                        tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
-                }
+
+            if (voiceListening) {
+                Text(
+                    "正在聆听… 点击麦克风结束",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AppColors.Primary,
+                    modifier = Modifier.padding(start = 14.dp, top = 6.dp)
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun PillChip(
+    selected: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    val bg = if (selected) AppColors.PrimaryLight else Color.Transparent
+    val fg = if (selected) AppColors.Primary else AppColors.TextPrimary
+    val shape = RoundedCornerShape(50)
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(bg)
+            .border(BorderStroke(1.dp, if (selected) Color.Transparent else AppColors.Divider), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 11.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = fg, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(5.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge, color = fg)
+    }
+}
+
+@Composable
+private fun CircleButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    filled: Boolean = false
+) {
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(if (filled) AppColors.Primary else Color.Transparent)
+            .border(
+                BorderStroke(1.dp, if (filled) Color.Transparent else AppColors.Divider),
+                androidx.compose.foundation.shape.CircleShape
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, description,
+            tint = if (filled) AppColors.OnPrimary else AppColors.TextPrimary,
+            modifier = Modifier.size(19.dp))
+    }
+}
+
+/** 「+」面板里的大方块按钮：拍照 / 相册 / 文件 */
+@Composable
+private fun AttachTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .height(84.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(AppColors.SurfaceVariant)
+            .clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(icon, label, tint = AppColors.TextPrimary, modifier = Modifier.size(25.dp))
+        Spacer(Modifier.height(7.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium,
+            color = AppColors.TextPrimary, fontWeight = FontWeight.Medium)
     }
 }
 

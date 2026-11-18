@@ -50,6 +50,14 @@ fun SettingsScreen(
     var showMemoryDialog by remember { mutableStateOf(false) }
     var memoryFacts by remember { mutableStateOf(repository.context.memoryFacts()) }
     var memoryNotice by remember { mutableStateOf<String?>(null) }
+    var rebuildingMemory by remember { mutableStateOf(false) }
+
+    // 多 API Key
+    var apiKeys by remember { mutableStateOf(store.apiKeys()) }
+    var activeKeyId by remember { mutableStateOf(store.activeApiKey()?.id.orEmpty()) }
+    var showAddKey by remember { mutableStateOf(false) }
+    var keyMenu by remember { mutableStateOf<com.deepseek.clone.data.local.ApiKeyEntry?>(null) }
+    var editingKey by remember { mutableStateOf<com.deepseek.clone.data.local.ApiKeyEntry?>(null) }
 
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -175,15 +183,81 @@ fun SettingsScreen(
                 SettingItem(
                     icon = Icons.Default.Psychology,
                     title = "查看 / 编辑长期记忆",
-                    subtitle = "当前已记住 ${memoryFacts.size} 条",
+                    subtitle = "当前已记住 ${memoryFacts.size} 条（上限 ${com.deepseek.clone.data.repository.ContextEngine.MAX_FACTS} 条）",
                     onClick = {
                         memoryFacts = repository.context.memoryFacts()
                         showMemoryDialog = true
                     }
                 )
+                SettingItem(
+                    icon = Icons.Default.Refresh,
+                    title = if (rebuildingMemory) "正在重新提炼记忆…" else "从最近对话重新提炼记忆",
+                    subtitle = "扫描最近 8 个会话，补充之前漏记的偏好与事实",
+                    onClick = {
+                        if (!rebuildingMemory) {
+                            rebuildingMemory = true
+                            scope.launch {
+                                val result = repository.rebuildMemoryFromHistory()
+                                rebuildingMemory = false
+                                memoryFacts = repository.context.memoryFacts()
+                                memoryNotice = result.fold(
+                                    { "提炼完成，当前共 $it 条长期记忆" },
+                                    { "提炼失败：${it.message}" }
+                                )
+                            }
+                        }
+                    }
+                )
                 memoryNotice?.let {
                     Text(it, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.bodySmall, color = AppColors.Success)
+                }
+            }
+
+            Divider(color = AppColors.Divider)
+
+            // ---------- 多 API Key ----------
+            SettingsSection(title = "API Key（可保存多个并随时切换）") {
+                apiKeys.forEach { entry ->
+                    val active = entry.id == activeKeyId
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .clickable {
+                                store.setActiveApiKey(entry.id)
+                                activeKeyId = entry.id
+                                memoryNotice = null
+                                Toast.makeText(context, "已切换到「${entry.label}」", Toast.LENGTH_SHORT).show()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = active, onClick = {
+                            store.setActiveApiKey(entry.id)
+                            activeKeyId = entry.id
+                        })
+                        Spacer(Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(entry.label, style = MaterialTheme.typography.bodyLarge)
+                            Text(entry.masked, style = MaterialTheme.typography.labelSmall,
+                                color = AppColors.TextSecondary)
+                        }
+                        if (active) {
+                            Text("使用中", style = MaterialTheme.typography.labelSmall,
+                                color = AppColors.Primary)
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        IconButton(onClick = { keyMenu = entry }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.MoreVert, null, tint = AppColors.TextSecondary)
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = { showAddKey = true },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("添加 API Key")
                 }
             }
 
@@ -258,6 +332,90 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(40.dp))
         }
+    }
+
+    // ---------- 添加 / 编辑 API Key ----------
+    val keyDialogTarget = if (showAddKey) null else editingKey
+    if (showAddKey || keyDialogTarget != null) {
+        var label by remember(showAddKey, keyDialogTarget?.id) {
+            mutableStateOf(keyDialogTarget?.label ?: "密钥 ${apiKeys.size + 1}")
+        }
+        var keyText by remember(showAddKey, keyDialogTarget?.id) {
+            mutableStateOf(keyDialogTarget?.key ?: "")
+        }
+        var keyError by remember { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = { showAddKey = false; editingKey = null },
+            title = { Text(if (keyDialogTarget == null) "添加 API Key" else "编辑 API Key") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = label,
+                        onValueChange = { label = it },
+                        label = { Text("备注名") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = keyText,
+                        onValueChange = { keyText = it; keyError = null },
+                        label = { Text("API Key (sk-...)") },
+                        singleLine = true,
+                        isError = keyError != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    keyError?.let {
+                        Text(it, color = AppColors.Error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val k = keyText.trim()
+                    if (!k.startsWith("sk-") || k.length < 20) {
+                        keyError = "请输入以 sk- 开头的有效 API Key"
+                    } else {
+                        if (keyDialogTarget == null) store.addApiKey(label, k)
+                        else store.updateApiKey(keyDialogTarget.id, label, k)
+                        apiKeys = store.apiKeys()
+                        activeKeyId = store.activeApiKey()?.id.orEmpty()
+                        showAddKey = false
+                        editingKey = null
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddKey = false; editingKey = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    keyMenu?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { keyMenu = null },
+            title = { Text(entry.label) },
+            text = { Text(entry.masked, color = AppColors.TextSecondary) },
+            confirmButton = {
+                TextButton(onClick = {
+                    editingKey = entry
+                    keyMenu = null
+                }) { Text("编辑") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        store.removeApiKey(entry.id)
+                        apiKeys = store.apiKeys()
+                        activeKeyId = store.activeApiKey()?.id.orEmpty()
+                        keyMenu = null
+                    }) { Text("删除", color = AppColors.Error) }
+                    TextButton(onClick = { keyMenu = null }) { Text(stringResource(R.string.cancel)) }
+                }
+            }
+        )
     }
 
     if (showMemoryDialog) {

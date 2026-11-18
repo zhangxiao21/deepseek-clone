@@ -14,7 +14,8 @@
 
 | 组件 | 版本 |
 |---|---|
-| JDK | 11 / 17 均可（AGP 7.2.2 要求 ≥11；Gitee 流水线实际为 11） |
+| App 版本 | **1.1（versionCode 2）** |
+| JDK | 11 / 17 均可（AGP 7.2.2 要求 ≥11；Gitee 流水线实际为 17） |
 | Gradle | wrapper 锁定 **7.3.3**；Gitee 流水线用系统 Gradle 7.6，实测兼容 |
 | Android Gradle Plugin | 7.2.2 |
 | Kotlin | 1.7.20 |
@@ -37,7 +38,7 @@ export JAVA_HOME=/path/to/jdk-17
 
 ### Gitee 云编译流水线（当前实际环境）
 
-仓库自带 `.workflow/流水线-202611181208.yml`，平台 `build@android` 步骤参数为 `jdkVersion: 11`、`gradleVersion: 7.6`，构建命令是 `gradle assembleRelease`（**用系统 Gradle，不走 `./gradlew`**）。所以日志里出现 Gradle 7.6.4 而非 wrapper 的 7.3.3，属正常。
+仓库自带 `.workflow/流水线-202611181208.yml`，平台 `build@android` 步骤参数为 `jdkVersion: 17`、`gradleVersion: 7.6`，构建命令是 `gradle assembleRelease`（**用系统 Gradle，不走 `./gradlew`**）。所以日志里出现 Gradle 7.6.4 而非 wrapper 的 7.3.3，属正常。流水线为手动触发，**改完代码必须先 commit + push，再触发流水线**，否则 `git clone --depth=1` 拉到的还是旧代码。
 
 平台会注入自己的镜像仓库，构建时可能打印：
 
@@ -79,12 +80,12 @@ export JAVA_HOME=/path/to/jdk-17
 | 联网搜索 | 内置联网工具，自动搜索并附引用；支持边思考边检索 | `tools: [{type:deepseek_web_search}, {type:deepseek_read_url}]`，引用在 `annotations`，过程在 `server_tool_event` |
 | 会话管理 | 列表/搜索/重命名/置顶/删除；**仅首轮自动命名，手动/导入标题永不覆盖** | 本地 JSON 存储 + `title.enabled`（按需请求） |
 | 导入导出 | 导入网页版 `deepseek_data-*.zip`，按 `parent_id` 摊平；导出本地会话；兼容 ISO 时间、大写角色、JsonNull、附件占位 | `ChatZipManager` |
-| **长期记忆** | 跨会话积累用户事实/偏好，自动抽取去重并注入 system prompt；设置页可查看/编辑/清空，可开关 | `ContextEngine.learn()`（后台轻量非流式调用） |
+| **长期记忆** | 跨会话积累用户事实/偏好，带最近 6 轮上下文抽取、去重合并，最多 120 条并注入 system prompt；设置页可查看/编辑/清空、可**从最近对话重新提炼** | `ContextEngine.learn()` / `rebuildFromHistory()`（后台轻量非流式调用） |
 | **上下文压缩** | 历史过长时把较旧轮次压成摘要随会话缓存，只回传最近若干轮原文；增量压缩、可开关 | `ContextEngine.compressInBackground()` / `prepareHistory()` |
-| 外观 | 浅色 / 深色 / 跟随系统三态切换，即时生效并持久化；退出登录保留偏好 | 设置 → 外观（`ThemeMode` + 动态 `AppPalette`） |
-| 文件/图片 | 图片上传（vision）、**相机拍照**、PDF/Word/PPT 解析、多模态消息、附件名展示与移除 | Files API `POST /files` + `messages[].content` 多模态数组 |
-| 语音 | 语音输入（系统 SpeechRecognizer）、朗读（TextToSpeech） | `SpeechHelper`、`ReadAloudHelper` |
-| 安全 | API Key 加密存储、日志脱敏 | `EncryptedSharedPreferences` |
+| 外观 | 浅色 / 深色 / 跟随系统三态切换，即时生效并持久化；退出登录保留偏好；聊天页与会话抽屉对齐官方布局 | 设置 → 外观（`ThemeMode` + 动态 `AppPalette`） |
+| 文件/图片 | **应用内相册选择器（网格缩略图 + 一次最多 9 张多选）**、「+」面板最近图片横条 + 拍照/相册/文件三宫格、相机拍照、PDF/Word/PPT 解析、附件名胶囊与移除 | Files API `POST /files` + `messages[].content` 多模态数组 |
+| 语音 | 语音输入（系统 SpeechRecognizer；无识别服务时自动降级到系统语音界面，可随时结束）、朗读（TextToSpeech） | `SpeechHelper`、`ReadAloudHelper` |
+| 安全 | **多个 API Key 加密保存，设置页/登录页随时添加、编辑、删除、切换**；旧单 Key 自动迁移；鉴权失败只临时登出、不删其它 Key | `EncryptedSharedPreferences` + `SecureStore.apiKeys()` |
 
 ### 官方模型（2026-11）
 
@@ -212,8 +213,9 @@ export JAVA_HOME=/path/to/jdk-17
 1. **计费**：联网搜索、图片、长文本都按 token 计费，注意账户余额。`usage` 会统计 `server_tool_use` 次数。
 2. **401/402/403**：App 会自动提示"API Key 无效/余额不足/无权限"并跳回登录页。
 3. **图片模型**：仅 `deepseek-flash` 系支持图片；专家模型 `deepseek-v4-pro` 不支持。
-4. **上下文长度**：开启上下文压缩时只回传最近 24 条原文 + 缓存摘要（关闭时最多 60 条）；超长会触发 API 的长度错误。记忆/压缩/摘要都是"尽力而为"，失败不影响对话。
-5. **语音**：`SpeechRecognizer` 离线能力取决于设备；朗读需系统装有中文语音包。
+4. **上下文长度**：开启上下文压缩时只回传最近 24 条原文 + 缓存摘要（关闭时最多 60 条）；超长会触发 API 的长度错误。记忆/压缩/摘要都是"尽力而为"，失败不影响对话。长期记忆上限 120 条，超过时保留最新事实。
+5. **语音**：`SpeechRecognizer` 离线能力取决于设备；设备无识别服务时自动降级到系统语音识别界面（会短暂跳出 App）；朗读需系统装有中文语音包。DeepSeek 官方开放 API **不提供语音转文字端点**，语音输入只能用设备本地能力。
+6. **相册选择器**：需要 `READ_MEDIA_IMAGES`（Android 13+）/ `READ_EXTERNAL_STORAGE`（旧版）权限；网格只加载最近 300 张，单次最多选 9 张，逐张走 Files API 上传。
 6. **停止生成**：官方 API 无独立 stop 端点，App 通过取消本地收集/关闭连接实现。
 7. **Material3 版本锁定**：依赖固定 `material3:1.0.0`（云编译为离线镜像，不宜升级）。代码使用 1.0.0 的 API：`smallTopAppBarColors`、`TextFieldDefaults.outlinedTextFieldColors`、`Divider`、`Icons.Filled.*`，会话操作菜单用 `AlertDialog`（1.0.0 无 `ModalBottomSheet` 与新版 `ListItem`）。**不要单独升级 Material3**——它会连带提升 Compose runtime，破坏 Kotlin 1.7.20 + Compiler 1.3.2 的严格配对。同理 `security-crypto` 固定 1.0.0，用 `MasterKeys` 旧签名而非 1.1+ 的 `MasterKey`。
 
@@ -239,6 +241,11 @@ DeepSeekApp/
 │   │       ├── Repository.kt                # 业务编排 / 请求构造 / part 清洗
 │   │       └── ContextEngine.kt             # 长期记忆 + 上下文压缩 + system prompt
     │   └── ui/                                 # Compose 界面
+    │       ├── chat/                           # 聊天页（胶囊输入栏 / CoT / 三宫格附件面板）
+    │       ├── picker/PhotoPickerScreen.kt    # 应用内相册多选 + 最近图片横条
+    │       ├── sessions/                      # 官方抽屉风格会话列表（时间分组）
+    │       ├── settings/ / login/ / theme/
+    │   └── util/                               # SpeechHelper / FileHelper / ReadAloudHelper
     └── res/
 ```
 

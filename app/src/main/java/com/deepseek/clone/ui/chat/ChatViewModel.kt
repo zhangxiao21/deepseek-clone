@@ -126,6 +126,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         _cotVisible.value = (getApplication() as DeepSeekApp).services.store.cotVisible
     }
 
+    /** 顶栏「隐藏/显示思考」快捷开关 */
+    fun setCotVisible(visible: Boolean) {
+        (getApplication() as DeepSeekApp).services.store.cotVisible = visible
+        _cotVisible.value = visible
+    }
+
     fun setModel(model: String) {
         _currentModel.value = model
         currentSessionId?.let { id ->
@@ -376,7 +382,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             viewModelScope.launch {
                                 runCatching {
                                     repo.context.compressInBackground(sessionId, history)
-                                    repo.context.learn(text, content)
+                                    repo.context.learn(history, text, content)
                                 }
                             }
                         }

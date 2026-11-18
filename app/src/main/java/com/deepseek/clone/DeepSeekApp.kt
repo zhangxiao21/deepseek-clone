@@ -40,10 +40,10 @@ class DeepSeekApp : Application() {
         super.onCreate()
         services = ServiceLocator(this)
         readAloud = com.deepseek.clone.util.ReadAloudHelper(this)
-        // API Key 失效/余额不足：清除密钥，UI 跳回登录页
+        // API Key 失效/余额不足：临时登出（保留其它已保存 Key，切换即可恢复）
         services.init(onAuthError = { msg ->
             authErrorMessage = msg
-            services.store.token = null
+            services.store.authBlocked = true
         })
     }
 

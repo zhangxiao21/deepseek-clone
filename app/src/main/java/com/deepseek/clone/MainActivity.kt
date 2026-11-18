@@ -1,14 +1,17 @@
 package com.deepseek.clone
 
 import android.Manifest
+import android.app.Activity
 import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -21,6 +24,7 @@ import com.deepseek.clone.data.model.ContentPart
 import com.deepseek.clone.ui.chat.ChatScreen
 import com.deepseek.clone.ui.chat.ChatViewModel
 import com.deepseek.clone.ui.login.LoginScreen
+import com.deepseek.clone.ui.picker.PhotoPickerScreen
 import com.deepseek.clone.ui.sessions.SessionsScreen
 import com.deepseek.clone.ui.settings.SettingsScreen
 import com.deepseek.clone.ui.theme.AppColors
@@ -37,6 +41,7 @@ class MainActivity : ComponentActivity() {
     private var currentVoiceCallback: ((String) -> Unit)? = null
     private var chatViewModelRef: ChatViewModel? = null
     private var cameraFile: File? = null
+    private var voiceListening by mutableStateOf(false)
 
     private val requestAudio = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -45,12 +50,20 @@ class MainActivity : ComponentActivity() {
         else Toast.makeText(this, "需要麦克风权限才能语音输入", Toast.LENGTH_SHORT).show()
     }
 
-    // 图片选择：走 vision，purpose=user_data（按文件扩展名自动判断）
-    private val imagePicker = registerForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri -> uri?.let { uploadFile(it) } }
+    /** 部分国产 ROM 没有 SpeechRecognizer 服务，降级到系统语音识别界面 */
+    private val voiceFallback = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        voiceListening = false
+        if (result.resultCode == Activity.RESULT_OK) {
+            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val text = matches?.firstOrNull()
+            if (!text.isNullOrBlank()) currentVoiceCallback?.invoke(text)
+            else Toast.makeText(this, "没有识别到内容", Toast.LENGTH_SHORT).show()
+        }
+    }
 
-    // 文件选择：文档走 rich_layout_recognition
+    // 文档仍走系统文件选择（用户只对图片选择器的观感有要求）
     private val filePicker = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri -> uri?.let { uploadFile(it) } }
@@ -89,9 +102,11 @@ class MainActivity : ComponentActivity() {
                             AppColors.applyDark(ThemeMode.isDark(mode, systemDark))
                         },
                         onAttachFile = { filePicker.launch("*/*") },
-                        onPickImage = { imagePicker.launch("image/*") },
+                        onImagesSelected = { uris -> uploadFiles(uris) },
                         onTakePhoto = { launchCamera() },
                         onVoiceInput = { cb -> requestVoice(cb) },
+                        onVoiceStop = { stopVoice() },
+                        voiceListening = voiceListening,
                         onViewModelReady = { chatViewModelRef = it }
                     )
                 }
@@ -99,22 +114,48 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ---------- 语音输入 ----------
+
     private fun requestVoice(callback: (String) -> Unit) {
+        if (voiceListening) {
+            stopVoice()
+            return
+        }
         currentVoiceCallback = callback
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            == PackageManager.PERMISSION_GRANTED
+            != PackageManager.PERMISSION_GRANTED
         ) {
-            startListening(callback)
-        } else {
             requestAudio.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            startListening(callback)
         }
     }
 
     private fun startListening(callback: (String) -> Unit) {
+        if (!speechHelper.isAvailable()) {
+            try {
+                voiceFallback.launch(speechHelper.buildIntent())
+                voiceListening = true
+            } catch (e: Exception) {
+                Toast.makeText(this, "此设备没有可用的语音识别服务", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
         speechHelper.startListening(
-            onResult = callback,
-            onError = { msg -> Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() }
+            onResult = { text ->
+                voiceListening = false
+                callback(text)
+            },
+            onError = { msg ->
+                voiceListening = false
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            },
+            onState = { listening -> voiceListening = listening }
         )
+    }
+
+    private fun stopVoice() {
+        speechHelper.stopListening()
     }
 
     /** 启动系统相机拍照（无需 CAMERA 权限，走 ACTION_IMAGE_CAPTURE 的 TakePicture 契约） */
@@ -130,9 +171,35 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** 拍照直传：已持有本地 File，无需再经 content:// 复制，保证 .jpg 扩展名与正确 MIME */
+    // ---------- 文件上传 ----------
+
     private fun uploadCameraFile(file: File) {
-        Thread { uploadFileInternal(file) }.start()
+        Thread { uploadFilesInternal(listOf(file)) }.start()
+    }
+
+    private fun uploadFile(uri: Uri) {
+        Thread {
+            val file = FileHelper.copyUriToCache(this, uri)
+            if (file == null) {
+                runOnUiThread { Toast.makeText(this, "读取文件失败", Toast.LENGTH_SHORT).show() }
+            } else {
+                uploadFilesInternal(listOf(file))
+            }
+        }.start()
+    }
+
+    /** 应用内相册多选后批量上传：一次复制，逐个走 Files API */
+    private fun uploadFiles(uris: List<Uri>) {
+        Thread {
+            val files = uris.mapIndexedNotNull { index, uri ->
+                FileHelper.copyUriToCache(this, uri, tag = "$index", defaultExt = ".jpg")
+            }
+            if (files.isEmpty()) {
+                runOnUiThread { Toast.makeText(this, "读取图片失败", Toast.LENGTH_SHORT).show() }
+            } else {
+                uploadFilesInternal(files)
+            }
+        }.start()
     }
 
     /**
@@ -143,33 +210,35 @@ class MainActivity : ComponentActivity() {
      * "file cannot have filename when file_id is present"。
      * 文件名只用于本地 UI 展示，通过 addPendingPart(part, name) 单独传入，不进请求体。
      */
-    private fun uploadFile(uri: Uri) {
-        Thread {
-            val file = FileHelper.copyUriToCache(this, uri)
-            if (file == null || !file.exists()) {
-                runOnUiThread { Toast.makeText(this, "读取文件失败", Toast.LENGTH_SHORT).show() }
-                return@Thread
-            }
-            uploadFileInternal(file)
-        }.start()
-    }
-
-    private fun uploadFileInternal(file: File) {
-        runOnUiThread { Toast.makeText(this, "正在上传…", Toast.LENGTH_SHORT).show() }
-        val repo = (application as DeepSeekApp).services.repository
-        val purpose = repo.purposeFor(file)
-        val result = kotlinx.coroutines.runBlocking { repo.uploadFile(file, purpose) }
+    private fun uploadFilesInternal(files: List<File>) {
+        if (files.isEmpty()) return
         runOnUiThread {
+            Toast.makeText(this, "正在上传 ${files.size} 个文件…", Toast.LENGTH_SHORT).show()
+        }
+        val repo = (application as DeepSeekApp).services.repository
+        var ok = 0
+        var firstError: String? = null
+        files.forEach { file ->
+            val purpose = repo.purposeFor(file)
+            val result = kotlinx.coroutines.runBlocking { repo.uploadFile(file, purpose) }
             result.fold(
                 onSuccess = { fileId ->
                     val part = ContentPart(type = "file", fileId = fileId)
-                    chatViewModelRef?.addPendingPart(part, file.name)
-                    Toast.makeText(this, "已添加：${file.name}", Toast.LENGTH_SHORT).show()
+                    runOnUiThread { chatViewModelRef?.addPendingPart(part, file.name) }
+                    ok++
                 },
                 onFailure = { e ->
-                    Toast.makeText(this, "上传失败：${e.message}", Toast.LENGTH_SHORT).show()
+                    if (firstError == null) firstError = "${file.name}: ${e.message}"
                 }
             )
+        }
+        runOnUiThread {
+            val msg = when {
+                firstError == null -> "已添加 $ok 个附件"
+                ok > 0 -> "已添加 $ok 个，失败：${files.size - ok} 个（$firstError）"
+                else -> "上传失败：$firstError"
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -179,7 +248,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** 内部导航：sealed 状态机 */
+/** 内部导航：sealed 状态机 + 图片选择器浮层 */
 @Composable
 private fun AppNavigation(
     application: android.app.Application,
@@ -189,15 +258,18 @@ private fun AppNavigation(
     themeMode: String,
     onThemeModeChange: (String) -> Unit,
     onAttachFile: () -> Unit,
-    onPickImage: () -> Unit,
+    onImagesSelected: (List<Uri>) -> Unit,
     onTakePhoto: () -> Unit,
     onVoiceInput: ((String) -> Unit) -> Unit,
+    onVoiceStop: () -> Unit,
+    voiceListening: Boolean,
     onViewModelReady: (ChatViewModel) -> Unit
 ) {
     var loggedIn by remember { mutableStateOf(store.isLoggedIn) }
     var screen by remember { mutableStateOf<Screen>(Screen.Sessions) }
     var chatSessionId by remember { mutableStateOf<String?>(null) }
     var chatTitle by remember { mutableStateOf("新对话") }
+    var showPhotoPicker by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val chatViewModel = remember { ChatViewModel(application) }
 
@@ -206,11 +278,20 @@ private fun AppNavigation(
     // 显示鉴权错误（API Key 失效/余额不足）
     val app = application as DeepSeekApp
     app.authErrorMessage?.let { msg ->
-       LaunchedEffect(msg) {
+        LaunchedEffect(msg) {
             Toast.makeText(application, msg, Toast.LENGTH_LONG).show()
             app.authErrorMessage = null
             loggedIn = false
             screen = Screen.Sessions
+        }
+    }
+
+    fun openNewChat() {
+        scope.launch {
+            val id = repository.createLocalSession("新对话", store.defaultModelType)
+            chatSessionId = id
+            chatTitle = "新对话"
+            screen = Screen.Chat
         }
     }
 
@@ -226,52 +307,62 @@ private fun AppNavigation(
         return
     }
 
-    when (screen) {
-        Screen.Sessions -> {
-            SessionsScreen(
-                repository = repository,
-                onOpenChat = { id, title ->
-                    chatSessionId = id
-                    chatTitle = title
-                    screen = Screen.Chat
-                },
-                onNewChat = {
-                    scope.launch {
-                        val id = repository.createLocalSession("新对话", store.defaultModelType)
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (screen) {
+            Screen.Sessions -> {
+                SessionsScreen(
+                    store = store,
+                    repository = repository,
+                    onOpenChat = { id, title ->
                         chatSessionId = id
-                        chatTitle = "新对话"
+                        chatTitle = title
                         screen = Screen.Chat
-                    }
-                },
-                onSettings = { screen = Screen.Settings }
-            )
-        }
-        Screen.Chat -> {
-            chatSessionId?.let { id ->
-                ChatScreen(
-                    sessionId = id,
-                    sessionTitle = chatTitle,
-                    viewModel = chatViewModel,
+                    },
+                    onNewChat = { openNewChat() },
+                    onSettings = { screen = Screen.Settings }
+                )
+            }
+            Screen.Chat -> {
+                chatSessionId?.let { id ->
+                    ChatScreen(
+                        sessionId = id,
+                        sessionTitle = chatTitle,
+                        viewModel = chatViewModel,
+                        onBack = { screen = Screen.Sessions },
+                        onNewChat = { openNewChat() },
+                        onAttachFile = onAttachFile,
+                        onPickImages = { showPhotoPicker = true },
+                        onQuickImages = onImagesSelected,
+                        onTakePhoto = onTakePhoto,
+                        onVoiceInput = onVoiceInput,
+                        onVoiceStop = onVoiceStop,
+                        voiceListening = voiceListening
+                    )
+                }
+            }
+            Screen.Settings -> {
+                SettingsScreen(
+                    store = store,
+                    zipManager = zipManager,
+                    repository = repository,
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange,
                     onBack = { screen = Screen.Sessions },
-                    onAttachFile = onAttachFile,
-                    onPickImage = onPickImage,
-                    onTakePhoto = onTakePhoto,
-                    onVoiceInput = onVoiceInput
+                    onLogout = {
+                        repository.clearApiKey()
+                        loggedIn = false
+                        screen = Screen.Sessions
+                    }
                 )
             }
         }
-        Screen.Settings -> {
-            SettingsScreen(
-                store = store,
-                zipManager = zipManager,
-                repository = repository,
-                themeMode = themeMode,
-                onThemeModeChange = onThemeModeChange,
-                onBack = { screen = Screen.Sessions },
-                onLogout = {
-                    repository.clearApiKey()
-                    loggedIn = false
-                    screen = Screen.Sessions
+
+        if (showPhotoPicker) {
+            PhotoPickerScreen(
+                onCancel = { showPhotoPicker = false },
+                onConfirm = { uris ->
+                    showPhotoPicker = false
+                    onImagesSelected(uris)
                 }
             )
         }
