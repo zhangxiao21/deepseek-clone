@@ -160,6 +160,7 @@ fun SettingsScreen(
                     onPersonalization = { page = Page.PERSONALIZATION },
                     onAbout = { page = Page.ABOUT },
                     onTts = { openTtsSettings(context) },
+                    onVoiceSettings = { openVoiceInputSettings(context) },
                     onUpdate = { showUpdateDialog = true },
                     onAgreement = { openUrl(context, "https://platform.deepseek.com/") },
                     onHelp = { openUrl(context, "https://api-docs.deepseek.com/zh-cn/") }
@@ -413,6 +414,7 @@ private fun MainPage(
     onPersonalization: () -> Unit,
     onAbout: () -> Unit,
     onTts: () -> Unit,
+    onVoiceSettings: () -> Unit,
     onUpdate: () -> Unit,
     onAgreement: () -> Unit,
     onHelp: () -> Unit
@@ -428,7 +430,8 @@ private fun MainPage(
         RowItem(Icons.Default.Edit, "个性化", onClick = onPersonalization)
     ))
     CardGroup("语音", listOf(
-        RowItem(Icons.Default.VolumeUp, "朗读音色", onClick = onTts)
+        RowItem(Icons.Default.VolumeUp, "朗读音色", onClick = onTts),
+        RowItem(Icons.Default.Mic, "语音识别设置", "下载离线语音包", onVoiceSettings)
     ))
     CardGroup("关于", listOf(
         RowItem(Icons.Default.Info, "检查更新", "1.2 (3)", onUpdate),
@@ -677,5 +680,18 @@ private fun openTtsSettings(context: Context) {
         context.startActivity(Intent("com.android.settings.TTS_SETTINGS"))
     } catch (e: Exception) {
         Toast.makeText(context, "请在系统设置中调整文字转语音音色", Toast.LENGTH_SHORT).show()
+    }
+}
+
+/** 语音能否离线用的关键：系统里是否装了中文离线语音包，给个直达入口 */
+private fun openVoiceInputSettings(context: Context) {
+    try {
+        context.startActivity(Intent("android.settings.VOICE_INPUT_SETTINGS"))
+    } catch (e: Exception) {
+        Toast.makeText(
+            context,
+            "请在系统「设置 → 语言和输入法 → 语音输入」中下载中文离线语音包",
+            Toast.LENGTH_LONG
+        ).show()
     }
 }
