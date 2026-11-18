@@ -2,24 +2,25 @@ package com.deepseek.clone.data.local
 
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import androidx.security.crypto.MasterKeys
 import com.deepseek.clone.core.ApiConfig
 import com.deepseek.clone.core.ClientProfile
 
 /**
  * 安全存储：API Key 与设置用 EncryptedSharedPreferences（底层 Android Keystore）加密。
  * API Key 等价账号付费权限，绝不写日志、绝不上传第三方。
+ *
+ * 依赖固定为 security-crypto 1.0.0：该版本只有 MasterKeys 与
+ * create(fileName, masterKeyAlias, context, ...) 旧签名；MasterKey / create(context, ...) 属 1.1.0+。
  */
 class SecureStore(context: Context) {
 
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
+    private val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
 
     private val prefs = EncryptedSharedPreferences.create(
-        context,
         "deepseek_secure_prefs",
-        masterKey,
+        masterKeyAlias,
+        context,
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )

@@ -46,7 +46,7 @@ fun SessionsScreen(
                         Icon(Icons.Default.Settings, contentDescription = "设置")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
+                colors = TopAppBarDefaults.smallTopAppBarColors(
                     containerColor = AppColors.Primary,
                     titleContentColor = androidx.compose.ui.graphics.Color.White,
                     actionIconContentColor = androidx.compose.ui.graphics.Color.White
@@ -87,39 +87,58 @@ fun SessionsScreen(
                             onClick = { onOpenChat(session.id, session.title) },
                             onMore = { menuSession = session }
                         )
-                        HorizontalDivider(color = AppColors.Divider)
+                        Divider(color = AppColors.Divider)
                     }
                 }
             }
         }
     }
 
-    // 会话操作菜单
+    // 会话操作菜单（Material3 1.0.0 无 ModalBottomSheet / 新版 ListItem，改用 AlertDialog）
     menuSession?.let { s ->
-        ModalBottomSheet(onDismissRequest = { menuSession = null }) {
-            Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
-                ListItem(
-                    headlineContent = { Text(if (s.pinned) "取消置顶" else "置顶") },
-                    leadingContent = { Icon(Icons.Default.PushPin, null) },
-                    modifier = Modifier.clickable {
-                        scope.launch { repository.setPinned(s.id, !s.pinned) }
-                        menuSession = null
+        AlertDialog(
+            onDismissRequest = { menuSession = null },
+            title = { Text(s.title, maxLines = 1) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    TextButton(
+                        onClick = {
+                            scope.launch { repository.setPinned(s.id, !s.pinned) }
+                            menuSession = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.PushPin, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (s.pinned) "取消置顶" else "置顶")
                     }
-                )
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.rename)) },
-                    leadingContent = { Icon(Icons.Default.Edit, null) },
-                    modifier = Modifier.clickable {
-                        renameTarget = s; renameText = s.title; menuSession = null
+                    TextButton(
+                        onClick = {
+                            renameTarget = s; renameText = s.title; menuSession = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Edit, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.rename))
                     }
-                )
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.delete), color = AppColors.Error) },
-                    leadingContent = { Icon(Icons.Default.Delete, null, tint = AppColors.Error) },
-                    modifier = Modifier.clickable { deleteTarget = s; menuSession = null }
-                )
+                    TextButton(
+                        onClick = { deleteTarget = s; menuSession = null },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Delete, null, tint = AppColors.Error,
+                            modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.delete), color = AppColors.Error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { menuSession = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
             }
-        }
+        )
     }
 
     // 重命名对话框

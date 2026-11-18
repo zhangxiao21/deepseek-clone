@@ -31,7 +31,12 @@ android {
     }
     kotlinOptions {
         jvmTarget = '11'
-        freeCompilerArgs += ['-opt-in=kotlin.RequiresOptIn']
+        // Material3 1.0.0 中 TopAppBar/OutlinedTextField/AlertDialog 等仍标记为 experimental，
+        // 全局 opt-in 避免每个 Composable 单独加注解（云编译环境固定用 M3 1.0.0）。
+        freeCompilerArgs += [
+            '-opt-in=kotlin.RequiresOptIn',
+            '-opt-in=androidx.compose.material3.ExperimentalMaterial3Api'
+        ]
     }
     buildFeatures {
         compose true

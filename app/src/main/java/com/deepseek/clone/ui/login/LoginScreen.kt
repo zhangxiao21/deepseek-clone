@@ -2,6 +2,7 @@ package com.deepseek.clone.ui.login
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,6 +30,7 @@ import kotlinx.coroutines.launch
  * API Key 输入页。
  * 用户从 platform.deepseek.com/api_keys 创建 sk- 开头的密钥，输入后验证并保存。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
     store: SecureStore,
@@ -94,7 +96,7 @@ fun LoginScreen(
                 }
             },
             isError = error != null,
-            colors = OutlinedTextFieldDefaults.colors(
+            colors = TextFieldDefaults.outlinedTextFieldColors(
                 focusedBorderColor = AppColors.Primary,
                 unfocusedBorderColor = AppColors.Divider
             )

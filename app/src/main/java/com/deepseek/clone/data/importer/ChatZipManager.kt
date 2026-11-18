@@ -130,7 +130,7 @@ class ChatZipManager(private val context: Context, private val dao: ChatDao) {
             totalSessions++
             totalMessages += entities.size
         }
-        Result.success(ImportResult(totalSessions, totalMessages))
+        return Result.success(ImportResult(totalSessions, totalMessages))
     }
 
     private data class ImportedMessage(

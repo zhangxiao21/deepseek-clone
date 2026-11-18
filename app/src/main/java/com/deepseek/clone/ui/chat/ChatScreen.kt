@@ -13,8 +13,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -84,7 +82,7 @@ fun ChatScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
                 actions = {
@@ -115,7 +113,7 @@ fun ChatScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.smallTopAppBarColors(containerColor = Color.White)
             )
         }
     ) { padding ->
@@ -396,7 +394,7 @@ private fun InputBar(
                     placeholder = { Text(stringResource(R.string.chat_hint)) },
                     shape = RoundedCornerShape(22.dp),
                     maxLines = 4,
-                    colors = OutlinedTextFieldDefaults.colors(
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
                         focusedBorderColor = AppColors.Primary,
                         unfocusedBorderColor = AppColors.Divider)
                 )
@@ -412,7 +410,7 @@ private fun InputBar(
                         enabled = input.isNotBlank() || pendingCount > 0,
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = AppColors.Primary)
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
+                        Icon(Icons.Filled.Send, contentDescription = "发送")
                     }
                 }
             }

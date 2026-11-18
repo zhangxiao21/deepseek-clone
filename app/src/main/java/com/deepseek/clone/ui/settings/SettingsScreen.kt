@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -75,7 +74,7 @@ fun SettingsScreen(
                 title = { Text(stringResource(R.string.settings)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                     }
                 }
             )
@@ -102,7 +101,7 @@ fun SettingsScreen(
                 }
             }
 
-            HorizontalDivider(color = AppColors.Divider)
+            Divider(color = AppColors.Divider)
 
             SettingsSection(title = stringResource(R.string.import_chat)) {
                 SettingItem(
@@ -131,7 +130,7 @@ fun SettingsScreen(
                 }
             }
 
-            HorizontalDivider(color = AppColors.Divider)
+            Divider(color = AppColors.Divider)
 
             SettingsSection(title = "API 接口") {
                 Text(
@@ -152,7 +151,7 @@ fun SettingsScreen(
                 )
             }
 
-            HorizontalDivider(color = AppColors.Divider)
+            Divider(color = AppColors.Divider)
 
             SettingsSection(title = stringResource(R.string.account)) {
                 SettingItem(
@@ -163,7 +162,7 @@ fun SettingsScreen(
                 )
             }
 
-            HorizontalDivider(color = AppColors.Divider)
+            Divider(color = AppColors.Divider)
 
             SettingsSection(title = stringResource(R.string.about)) {
                 Text(stringResource(R.string.about_text),

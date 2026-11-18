@@ -134,6 +134,7 @@ export JAVA_HOME=/path/to/jdk-17
 4. **上下文长度**：历史最多回传 40 条；超长会触发 API 的长度错误。
 5. **语音**：`SpeechRecognizer` 离线能力取决于设备；朗读需系统装有中文语音包。
 6. **停止生成**：官方 API 无独立 stop 端点，App 通过取消本地收集/关闭连接实现。
+7. **Material3 版本锁定**：依赖固定 `material3:1.0.0`（云编译为离线镜像，不宜升级）。代码使用 1.0.0 的 API：`smallTopAppBarColors`、`TextFieldDefaults.outlinedTextFieldColors`、`Divider`、`Icons.Filled.*`，会话操作菜单用 `AlertDialog`（1.0.0 无 `ModalBottomSheet` 与新版 `ListItem`）。**不要单独升级 Material3**——它会连带提升 Compose runtime，破坏 Kotlin 1.7.20 + Compiler 1.3.2 的严格配对。同理 `security-crypto` 固定 1.0.0，用 `MasterKeys` 旧签名而非 1.1+ 的 `MasterKey`。
 
 ---
 

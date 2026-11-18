@@ -186,7 +186,7 @@ class Repository(
     suspend fun uploadFile(file: File, purpose: String): Result<String> = withContext(Dispatchers.IO) {
         try {
             val purposeBody = purpose.toRequestBody("text/plain".toMediaTypeOrNull())
-            val fileBody = file.asRequestBody(guessMime(file))
+            val fileBody = file.asRequestBody(guessMime(file).toMediaTypeOrNull())
             val part = MultipartBody.Part.createFormData("file", file.name, fileBody)
             val resp = api.uploadFile(purposeBody, part)
             val id = resp.body()?.id
