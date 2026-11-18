@@ -45,6 +45,14 @@ export JAVA_HOME=/path/to/jdk-17
 
 > ⚠️ **历史坑**：Compose Compiler 版本必须与 Kotlin 严格配对。`androidx.compose.compiler:compiler:1.2.1` 这个 artifact **在 Google Maven 上根本不存在**（官方只有 `1.2.0 ↔ Kotlin 1.7.0`、`1.3.0/1.3.1 ↔ Kotlin 1.7.10`、`1.3.2 ↔ Kotlin 1.7.20`），误填即报 `Could not find androidx.compose.compiler:compiler:1.2.1`。当前正确配置为 **Kotlin 1.7.20 + Compiler 1.3.2**。Compose UI 库版本（1.2.1）与 compiler 版本已解耦，无需保持一致。
 
+### 产物与安装（APK 签名）
+
+`assembleRelease` 的产物是 `app/build/outputs/apk/release/app-release.apk`，**已签名、可直接安装**。
+
+- 签名配置见 `app/build.gradle` 的 `signingConfigs.release`，使用仓库内 `app/debug.keystore`（测试密钥，`android` / alias `deepseek`）。它等价于 Android 官方 debug.keystore：自签名、密码固定、公开存放无安全影响，**仅用于自测与 CI，不可用于正式上架**；上架请换成自己保管的上架密钥并移除该文件。
+- 若产物名是 **`app-release-unsigned.apk`**，说明没走签名配置，Android 会拒绝安装，手机常提示"安装包已损坏 / 解析软件包时出现问题"。这是**未签名**导致的，不是文件损坏（APK 本身的 ZIP 结构是完整的）。
+- minSdk 26 / targetSdk 33：targetSdk ≥ 30 的 APK 在 Android 11+ 要求至少 v2 签名，AGP 默认已启用 v1 + v2。
+
 ### Android Studio 编译
 
 用 Android Studio 打开 `DeepSeekApp` 目录，等待 Gradle Sync 完成，`Build > Build APK(s)`。
