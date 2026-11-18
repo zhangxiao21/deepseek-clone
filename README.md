@@ -1,8 +1,10 @@
-# DeepSeek 安卓客户端（复刻）
+# 赛博大鲸鱼（DeepSeek 安卓客户端）
 
-一个用 Kotlin + Jetpack Compose 编写的 DeepSeek 手机端复刻 App，**使用 DeepSeek 官方开放 API（`api.deepseek.com`，OpenAI 兼容）**，通过 API Key 鉴权。实现与官方 App 同款的核心体验：深度思考、联网搜索、模型切换、会话管理、网页版对话包导入导出、文件上传、图片识别、语音输入与朗读。
+**赛博大鲸鱼**是一个用 Kotlin + Jetpack Compose 编写的 DeepSeek 手机端客户端，**使用 DeepSeek 官方开放 API（`api.deepseek.com`，OpenAI 兼容）**，通过 API Key 鉴权。实现同款核心体验：深度思考、联网搜索、模型切换、会话管理、网页版对话包导入导出、文件上传、图片识别、语音输入与朗读，以及可切换的浅色 / 深色 / 跟随系统主题。
 
 > ⚠️ **非官方项目，仅供学习研究。** 调用 API 按官方计费，费用由你的 DeepSeek 账户承担。API Key 等价账户付费权限，本 App 将其加密存于 Android Keystore，绝不写日志、绝不上传第三方。
+
+> 命名说明：App 显示名称为「赛博大鲸鱼」；`DeepSeek` 仅指所接入的官方服务与模型。工程目录名、包名 `com.deepseek.clone`、类名与 Gitee 仓库名属技术标识，保持不变。
 
 ---
 
@@ -76,7 +78,8 @@ export JAVA_HOME=/path/to/jdk-17
 | 核心对话 | 流式输出、深度思考开关、推理强度、模型切换、停止生成、Markdown 渲染、思考折叠 | `POST /chat/completions` (`stream:true`, `thinking.type`, `reasoning_effort`)，思考内容在 `reasoning_content` |
 | 联网搜索 | 内置联网工具，自动搜索并附引用；支持边思考边检索 | `tools: [{type:deepseek_web_search}, {type:deepseek_read_url}]`，引用在 `annotations`，过程在 `server_tool_event` |
 | 会话管理 | 列表/搜索/重命名/置顶/删除；自动用 API 返回的标题命名 | 本地 JSON 存储 + `title.enabled` |
-| 导入导出 | 导入网页版 `deepseek_data-*.zip`，按 `parent_id` 摊平；导出本地会话 | `ChatZipManager` |
+| 导入导出 | 导入网页版 `deepseek_data-*.zip`，按 `parent_id` 摊平；导出本地会话；兼容 ISO 时间、大写角色、JsonNull、附件占位 | `ChatZipManager` |
+| 外观 | 浅色 / 深色 / 跟随系统三态切换，即时生效并持久化；退出登录保留偏好 | 设置 → 外观（`ThemeMode` + 动态 `AppPalette`） |
 | 文件/图片 | 图片上传（vision）、PDF/Word/PPT 解析、多模态消息 | Files API `POST /files` + `messages[].content` 多模态数组 |
 | 语音 | 语音输入（系统 SpeechRecognizer）、朗读（TextToSpeech） | `SpeechHelper`、`ReadAloudHelper` |
 | 安全 | API Key 加密存储、日志脱敏 | `EncryptedSharedPreferences` |
@@ -130,7 +133,38 @@ export JAVA_HOME=/path/to/jdk-17
 
 ### 4.4 导入 zip
 
-网页版 `deepseek_data-*.zip`（`export_format_version:3`）：按 `current_message_id` 沿 `parent_id` 回溯摊平，按 `id` 升序排列（不用 `inserted_at`，非单调），过滤 `CONTENT_FILTER`/失败态。
+网页版 `deepseek_data-*.zip`（`manifest.json` 的 `export_format_version:3`）：按 `current_message_id` 沿 `parent_id` 回溯摊平，按 `id` 升序排列（不用 `inserted_at`，非单调），过滤 `CONTENT_FILTER`/失败态。
+
+**实测格式（用用户真实导出包 82 个会话 / 4068 条消息校准）**：
+
+```json
+{
+  "title": "闲聊4",
+  "current_message_id": 228,
+  "messages": [{
+    "id": 1, "parent_id": null, "role": "USER", "status": "FINISHED",
+    "inserted_at": "2026-11-15T16:13:25.628Z",
+    "fragments": [
+      {"type": "FILE", "files": [{"file_name": "x.webp"}]},
+      {"type": "REQUEST", "content": "……"},
+      {"type": "THINK", "content": "……", "elapsed_secs": 3.2},
+      {"type": "RESPONSE", "content": "……"}
+    ]
+  }]
+}
+```
+
+三个曾导致「标题有、内容没有」的坑：
+
+| 坑 | 现象 | 处理 |
+|---|---|---|
+| `inserted_at` 是 **ISO 字符串**，旧代码 `asDouble` 抛异常且被 `catch` 静默吞掉 | 每条消息都被丢弃，只导入会话标题 | `parseTimestamp` 兼容 ISO / 秒 / 毫秒，统一存 epoch 秒 |
+| `role` 是 `USER` / `ASSISTANT` **大写** | 气泡全判成 AI、历史不进上下文 | `normalizeRole` 归一化为 `user` / `assistant` |
+| `content` 可能缺失 / `JsonNull` / 类型漂移；`CONTENT_RISK` 等 fragment 带文本 | 正文混入风险提示或抛 `UnsupportedOperationException` | 全部走 `asText` 安全访问器；正文只取白名单 `REQUEST/RESPONSE/TEMPLATE_RESPONSE/...` |
+
+`FILE` fragment 对应的实体图片在 `*_files/` 目录，APK 内无文件，导入时转为 `📎 文件名` 占位文本，避免用户以为内容丢失。`THINK` 的 `elapsed_secs` 存入 `thinkingElapsed`。导入结果会显示跳过条数，便于排查异常包。
+
+校准结果：82 个会话导入 3992 条消息，正文非空率 100%，0 个空会话，当前分支覆盖率 98.2%。
 
 ---
 

@@ -37,6 +37,11 @@ class SecureStore(context: Context) {
         get() = prefs.getString(KEY_MODEL, ApiConfig.MODEL_FLASH) ?: ApiConfig.MODEL_FLASH
         set(value) = prefs.edit().putString(KEY_MODEL, value).apply()
 
+    /** 外观模式：system / light / dark（与 ui.theme.ThemeMode 的字符串值一致） */
+    var themeMode: String
+        get() = prefs.getString(KEY_THEME, "system") ?: "system"
+        set(value) = prefs.edit().putString(KEY_THEME, value).apply()
+
     var isLoggedIn: Boolean
         get() = !token.isNullOrBlank()
         set(value) { if (!value) token = null }
@@ -44,11 +49,15 @@ class SecureStore(context: Context) {
     fun currentProfile(): ClientProfile = ClientProfile()
 
     fun clearAll() {
+        // 退出登录只清鉴权信息，外观偏好保留
+        val keepTheme = themeMode
         prefs.edit().clear().apply()
+        themeMode = keepTheme
     }
 
     companion object {
         private const val KEY_TOKEN = "api_key"
         private const val KEY_MODEL = "default_model"
+        private const val KEY_THEME = "theme_mode"
     }
 }

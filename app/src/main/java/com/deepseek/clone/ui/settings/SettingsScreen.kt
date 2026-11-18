@@ -23,6 +23,7 @@ import com.deepseek.clone.core.ApiConfig
 import com.deepseek.clone.data.importer.ChatZipManager
 import com.deepseek.clone.data.local.SecureStore
 import com.deepseek.clone.ui.theme.AppColors
+import com.deepseek.clone.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,6 +31,8 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     store: SecureStore,
     zipManager: ChatZipManager,
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
     onBack: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -48,7 +51,10 @@ fun SettingsScreen(
                 val result = zipManager.importFromUri(it)
                 importing = false
                 importResult = result.fold(
-                    onSuccess = { r -> "成功导入 ${r.sessions} 个对话，${r.messages} 条消息" },
+                    onSuccess = { r ->
+                        "成功导入 ${r.sessions} 个对话，${r.messages} 条消息" +
+                            if (r.skipped > 0) "（跳过 ${r.skipped} 条异常消息）" else ""
+                    },
                     onFailure = { e -> "导入失败：${e.message}" }
                 )
             }
@@ -103,6 +109,31 @@ fun SettingsScreen(
 
             Divider(color = AppColors.Divider)
 
+            SettingsSection(title = stringResource(R.string.appearance)) {
+                ThemeMode.ALL.forEach { mode ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .clickable { onThemeModeChange(mode) }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = themeMode == mode,
+                            onClick = { onThemeModeChange(mode) }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(ThemeMode.label(mode))
+                            Text(ThemeMode.description(mode),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = AppColors.TextSecondary)
+                        }
+                    }
+                }
+            }
+
+            Divider(color = AppColors.Divider)
+
             SettingsSection(title = stringResource(R.string.import_chat)) {
                 SettingItem(
                     icon = Icons.Default.FileDownload,
@@ -134,7 +165,7 @@ fun SettingsScreen(
 
             SettingsSection(title = "API 接口") {
                 Text(
-                    "本 App 使用 DeepSeek 官方开放 API（api.deepseek.com），调用费用从你的 API 账户余额扣除。",
+                    "赛博大鲸鱼使用 DeepSeek 官方开放 API（api.deepseek.com），调用费用从你的 API 账户余额扣除。",
                     style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )

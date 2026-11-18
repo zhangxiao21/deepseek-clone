@@ -113,11 +113,11 @@ fun ChatScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.smallTopAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.smallTopAppBarColors(containerColor = AppColors.Background)
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).background(Color.White)) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding).background(AppColors.Background)) {
             error?.let { msg ->
                 Snackbar(
                     modifier = Modifier.padding(8.dp),
@@ -185,7 +185,7 @@ private fun EmptyChatHint() {
     ) {
         Text("🐋", style = MaterialTheme.typography.displayMedium)
         Spacer(Modifier.height(8.dp))
-        Text("给 DeepSeek 发送消息", style = MaterialTheme.typography.titleMedium,
+        Text("给大鲸鱼发送消息", style = MaterialTheme.typography.titleMedium,
             color = AppColors.TextSecondary)
         Spacer(Modifier.height(4.dp))
         Text("开启深度思考或联网搜索以获得更强能力", style = MaterialTheme.typography.labelSmall,
@@ -217,7 +217,7 @@ private fun MessageBubble(
                     .padding(if (isUser) 12.dp else 0.dp)
             ) {
                 if (isUser) {
-                    Text(msg.content, color = Color.White, style = MaterialTheme.typography.bodyLarge)
+                    Text(msg.content, color = AppColors.OnBubbleUser, style = MaterialTheme.typography.bodyLarge)
                 } else {
                     MarkdownText(msg.content.ifEmpty { if (msg.isError) "生成失败" else "" })
                 }
@@ -250,7 +250,7 @@ private fun Avatar(isUser: Boolean) {
         contentAlignment = Alignment.Center
     ) {
         Text(if (isUser) "我" else "D",
-            color = if (isUser) AppColors.TextSecondary else Color.White,
+            color = if (isUser) AppColors.TextSecondary else AppColors.OnPrimary,
             fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
     }
 }
@@ -354,7 +354,7 @@ private fun InputBar(
     onImage: () -> Unit,
     onVoice: () -> Unit
 ) {
-    Surface(modifier = Modifier.fillMaxWidth(), shadowElevation = 8.dp, color = Color.White) {
+    Surface(modifier = Modifier.fillMaxWidth(), shadowElevation = 8.dp, color = AppColors.Background) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FilterChip(
@@ -430,6 +430,6 @@ private fun InputBar(
 
 private fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("DeepSeek", text))
+    clipboard.setPrimaryClip(ClipData.newPlainText("赛博大鲸鱼", text))
     Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
 }

@@ -14,7 +14,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -63,13 +62,13 @@ fun LoginScreen(
             contentAlignment = Alignment.Center
         ) {
             androidx.compose.material3.Text(
-                "D", color = Color.White,
+                "🐋", color = AppColors.OnPrimary,
                 style = MaterialTheme.typography.displaySmall
             )
         }
 
         Spacer(Modifier.height(20.dp))
-        Text("DeepSeek", style = MaterialTheme.typography.headlineMedium,
+        Text("赛博大鲸鱼", style = MaterialTheme.typography.headlineMedium,
             color = AppColors.TextPrimary)
         Spacer(Modifier.height(6.dp))
         Text("输入 API Key 开始使用", style = MaterialTheme.typography.bodyMedium,
@@ -139,7 +138,7 @@ fun LoginScreen(
                 CircularProgressIndicator(
                     modifier = Modifier.size(20.dp),
                     strokeWidth = 2.dp,
-                    color = Color.White
+                    color = AppColors.OnPrimary
                 )
             } else {
                 Text("验证并登录")

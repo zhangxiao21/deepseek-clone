@@ -1,6 +1,7 @@
 package com.deepseek.clone
 
 import android.Manifest
+import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -21,7 +22,9 @@ import com.deepseek.clone.ui.chat.ChatViewModel
 import com.deepseek.clone.ui.login.LoginScreen
 import com.deepseek.clone.ui.sessions.SessionsScreen
 import com.deepseek.clone.ui.settings.SettingsScreen
+import com.deepseek.clone.ui.theme.AppColors
 import com.deepseek.clone.ui.theme.DeepSeekTheme
+import com.deepseek.clone.ui.theme.ThemeMode
 import com.deepseek.clone.util.FileHelper
 import com.deepseek.clone.util.SpeechHelper
 import kotlinx.coroutines.launch
@@ -55,14 +58,26 @@ class MainActivity : ComponentActivity() {
         val services = (application as DeepSeekApp).services
         speechHelper = SpeechHelper(this)
 
+        val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        // 首帧之前同步调色板，避免深色模式下闪一下白屏
+        AppColors.applyDark(ThemeMode.isDark(services.store.themeMode, systemDark))
+
         setContent {
-            DeepSeekTheme {
+            var themeMode by remember { mutableStateOf(services.store.themeMode) }
+            DeepSeekTheme(themeMode = themeMode) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     AppNavigation(
                         application = application,
                         store = services.store,
                         repository = services.repository,
                         zipManager = services.zipManager,
+                        themeMode = themeMode,
+                        onThemeModeChange = { mode ->
+                            services.store.themeMode = mode
+                            themeMode = mode
+                            AppColors.applyDark(ThemeMode.isDark(mode, systemDark))
+                        },
                         onAttachFile = { filePicker.launch("*/*") },
                         onPickImage = { imagePicker.launch("image/*") },
                         onVoiceInput = { cb -> requestVoice(cb) },
@@ -136,6 +151,8 @@ private fun AppNavigation(
     store: SecureStore,
     repository: com.deepseek.clone.data.repository.Repository,
     zipManager: com.deepseek.clone.data.importer.ChatZipManager,
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
     onAttachFile: () -> Unit,
     onPickImage: () -> Unit,
     onVoiceInput: ((String) -> Unit) -> Unit,
@@ -210,6 +227,8 @@ private fun AppNavigation(
             SettingsScreen(
                 store = store,
                 zipManager = zipManager,
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange,
                 onBack = { screen = Screen.Sessions },
                 onLogout = {
                     repository.clearApiKey()

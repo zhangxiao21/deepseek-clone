@@ -48,15 +48,15 @@ fun SessionsScreen(
                 },
                 colors = TopAppBarDefaults.smallTopAppBarColors(
                     containerColor = AppColors.Primary,
-                    titleContentColor = androidx.compose.ui.graphics.Color.White,
-                    actionIconContentColor = androidx.compose.ui.graphics.Color.White
+                    titleContentColor = AppColors.OnPrimary,
+                    actionIconContentColor = AppColors.OnPrimary
                 )
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = onNewChat, containerColor = AppColors.Primary) {
                 Icon(Icons.Default.Add, contentDescription = "新对话",
-                    tint = androidx.compose.ui.graphics.Color.White)
+                    tint = AppColors.OnPrimary)
             }
         }
     ) { padding ->

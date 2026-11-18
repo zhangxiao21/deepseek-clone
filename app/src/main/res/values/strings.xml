@@ -1,23 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">DeepSeek</string>
-    <string name="app_name_full">DeepSeek 复刻版</string>
+    <string name="app_name">赛博大鲸鱼</string>
+    <string name="app_name_full">赛博大鲸鱼</string>
 
     <!-- 登录 -->
-    <string name="login_title">登录 DeepSeek 账号</string>
-    <string name="login_subtitle">在网页中完成登录，App 将自动获取登录态</string>
-    <string name="login_manual">手动粘贴 Token</string>
-    <string name="login_manual_hint">从 chat.deepseek.com 的 localStorage.userToken 复制</string>
+    <string name="login_title">登录赛博大鲸鱼</string>
+    <string name="login_subtitle">输入 DeepSeek 开放平台的 API Key 即可使用</string>
+    <string name="login_manual">手动粘贴 API Key</string>
+    <string name="login_manual_hint">从 platform.deepseek.com/api_keys 获取 sk- 开头的密钥</string>
     <string name="login_button">登录</string>
     <string name="login_verifying">正在验证账号…</string>
     <string name="login_success">登录成功</string>
     <string name="login_failed">登录失败：%1$s</string>
     <string name="logout">退出登录</string>
-    <string name="logout_confirm">确定退出登录？将清除本地保存的登录态。</string>
+    <string name="logout_confirm">确定退出登录？将清除本地保存的 API Key。</string>
 
     <!-- 主界面 -->
     <string name="new_chat">开启新对话</string>
-    <string name="chat_hint">给 DeepSeek 发送消息</string>
+    <string name="chat_hint">给大鲸鱼发送消息</string>
     <string name="send">发送</string>
     <string name="stop">停止生成</string>
     <string name="deep_thinking">深度思考 (R1)</string>
@@ -49,13 +49,18 @@
     <string name="account">账号</string>
     <string name="model_settings">模型设置</string>
     <string name="default_model">默认模型</string>
+    <string name="appearance">外观</string>
+    <string name="theme">主题</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
     <string name="api_headers">接口版本头（高级）</string>
     <string name="api_headers_desc">前端发版后若接口报错，可在此更新 X-Client-Version 等值</string>
     <string name="import_chat">导入对话</string>
     <string name="import_chat_desc">导入网页版导出的 deepseek_data-*.zip</string>
     <string name="export_chat">导出对话</string>
     <string name="about">关于</string>
-    <string name="about_text">非官方复刻客户端，仅供学习研究。通过网页版登录态调用 DeepSeek 服务，请遵守服务条款。私有接口可能变动，字段失配时请更新版本头。</string>
+    <string name="about_text">赛博大鲸鱼是一款非官方客户端，仅供学习研究。通过 DeepSeek 官方开放 API（api.deepseek.com）调用服务，费用从你的 API 账户余额扣除，请遵守服务条款。</string>
 
     <!-- 导入导出 -->
     <string name="importing">正在导入…</string>
@@ -84,6 +89,6 @@
     <string name="empty_hint">输入消息开始对话</string>
     <string name="message_too_long">内容超出长度限制</string>
     <string name="rate_limited">请求过于频繁，请稍后再试</string>
-    <string name="token_expired">登录态已失效，请重新登录</string>
+    <string name="token_expired">API Key 已失效，请重新输入</string>
     <string name="network_error">网络连接失败</string>
 </resources>
