@@ -2,6 +2,7 @@ package com.deepseek.clone.data.importer
 
 import android.content.Context
 import android.net.Uri
+import com.deepseek.clone.core.ApiConfig
 import com.deepseek.clone.data.local.ChatDao
 import com.deepseek.clone.data.local.MessageEntity
 import com.deepseek.clone.data.local.SessionEntity
@@ -140,7 +141,7 @@ class ChatZipManager(private val context: Context, private val dao: ChatDao) {
                     title = title,
                     createdAt = now,
                     updatedAt = now,
-                    modelType = "default",
+                    modelType = ApiConfig.MODEL_FLASH,
                     source = "imported",
                     // 导入的标题是网页版已确定的，禁止后续自动标题覆盖
                     titleEdited = true

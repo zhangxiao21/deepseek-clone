@@ -84,7 +84,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val s = repo.getSession(sessionId)
             if (s != null) {
-                _currentModel.value = s.modelType
+                // 导入会话等历史数据可能存有非法模型名（如 "default"），规范化并回写修复
+                val model = ApiConfig.normalizeModel(s.modelType)
+                if (model != s.modelType) repo.setSessionModel(sessionId, model)
+                _currentModel.value = model
                 _sessionTitle.value = s.title
             }
         }
@@ -243,7 +246,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 val autoTitle = !reuseUser && history.isEmpty() && session?.titleEdited != true
 
                 val messages = repo.buildMessages(systemPrompt, recentHistory, text, parts)
-                val model = _currentModel.value
+                val model = ApiConfig.normalizeModel(_currentModel.value)
                 val request = repo.buildRequest(model, messages, thinkingEnabled, searchEnabled, effort, autoTitle)
 
                 // 4. 流式请求

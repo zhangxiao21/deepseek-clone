@@ -105,7 +105,8 @@ class Repository(
     suspend fun getSession(id: String): SessionEntity? = withContext(Dispatchers.IO) { dao.getSession(id) }
 
     suspend fun getModelForSession(id: String): String = withContext(Dispatchers.IO) {
-        dao.getSession(id)?.modelType ?: ApiConfig.MODEL_FLASH
+        // 兜底校验：历史脏数据（如导入会话的 "default"）不能原样发给服务端
+        ApiConfig.normalizeModel(dao.getSession(id)?.modelType)
     }
 
     suspend fun setSessionModel(id: String, model: String) = withContext(Dispatchers.IO) {

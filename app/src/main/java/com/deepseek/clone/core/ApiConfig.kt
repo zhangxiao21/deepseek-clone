@@ -32,6 +32,16 @@ object ApiConfig {
     const val PURPOSE_USER_DATA = "user_data"                    // 图片/文本/表格/电子书
     const val PURPOSE_TEXT_RECOGNITION = "text_recognition"      // PDF/Word/PPT 只解析文字
     const val PURPOSE_RICH_LAYOUT = "rich_layout_recognition"    // 图文混排解析
+
+    /**
+     * 把任意来源的 model 名规范化成服务端认可的有效值。
+     * 服务端只接受 deepseek-flash / deepseek-v4-pro，传入其他值（如导入会话
+     * 写死的 "default"）会报 HTTP 400 invalid_request_error，这里统一兜底。
+     */
+    fun normalizeModel(raw: String?): String = when (raw) {
+        MODEL_FLASH, MODEL_PRO -> raw
+        else -> MODEL_FLASH
+    }
 }
 
 /** 兼容设置页的可覆盖参数（官方 API 仅需 userAgent） */
