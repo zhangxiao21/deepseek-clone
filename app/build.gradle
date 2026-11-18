@@ -1,6 +1,8 @@
-apply plugin: 'com.android.application'
-apply plugin: 'org.jetbrains.kotlin.android'
-apply plugin: 'kotlin-kapt'
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'kotlin-kapt'
+}
 
 android {
     compileSdkVersion 33
@@ -58,13 +60,13 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.5.1'
 
     // Compose (与 Kotlin 1.7.10 / compiler 1.2.1 严格匹配)
-    implementation "androidx.compose.ui:ui:$compose_version"
-    implementation "androidx.compose.ui:ui-tooling-preview:$compose_version"
-    implementation "androidx.compose.material:material:$compose_version"
+    implementation "androidx.compose.ui:ui:${rootProject.ext.compose_version}"
+    implementation "androidx.compose.ui:ui-tooling-preview:${rootProject.ext.compose_version}"
+    implementation "androidx.compose.material:material:${rootProject.ext.compose_version}"
     implementation "androidx.compose.material3:material3:1.0.0"
-    implementation "androidx.compose.material:material-icons-extended:$compose_version"
-    debugImplementation "androidx.compose.ui:ui-tooling:$compose_version"
-    debugImplementation "androidx.compose.ui:ui-test-manifest:$compose_version"
+    implementation "androidx.compose.material:material-icons-extended:${rootProject.ext.compose_version}"
+    debugImplementation "androidx.compose.ui:ui-tooling:${rootProject.ext.compose_version}"
+    debugImplementation "androidx.compose.ui:ui-test-manifest:${rootProject.ext.compose_version}"
 
     // Navigation
     implementation 'androidx.navigation:navigation-compose:2.5.2'
@@ -100,5 +102,5 @@ dependencies {
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.4'
     androidTestImplementation 'androidx.test.ext:junit:1.1.4'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.0'
-    androidTestImplementation "androidx.compose.ui:ui-test-junit4:$compose_version"
+    androidTestImplementation "androidx.compose.ui:ui-test-junit4:${rootProject.ext.compose_version}"
 }

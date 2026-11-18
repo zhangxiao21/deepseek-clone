@@ -1,23 +1,13 @@
-// 顶层构建：AGP 7.2.2 与 Gradle 7.3.3 严格匹配
-buildscript {
-    ext.kotlin_version = '1.7.10'
-    ext.compose_version = '1.2.1'
-    ext.compose_compiler_version = '1.2.1'
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:7.2.2'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-    }
+// 顶层构建：插件版本在 settings.gradle 的 pluginManagement 中声明。
+// 不要在 build.gradle / allprojects 中声明仓库（FAIL_ON_PROJECT_REPOS 会报错）。
+plugins {
+    id 'com.android.application' apply false
+    id 'org.jetbrains.kotlin.android' apply false
 }
 
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
+ext {
+    compose_version = '1.2.1'
+    compose_compiler_version = '1.2.1'
 }
 
 task clean(type: Delete) {
