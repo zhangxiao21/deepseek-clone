@@ -1,12 +1,10 @@
 package com.deepseek.clone
 
 import android.Manifest
-import android.app.Activity
 import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
-import android.speech.RecognizerIntent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -50,19 +48,6 @@ class MainActivity : ComponentActivity() {
         else Toast.makeText(this, "需要麦克风权限才能语音输入", Toast.LENGTH_SHORT).show()
     }
 
-    /** 部分国产 ROM 没有 SpeechRecognizer 服务，降级到系统语音识别界面 */
-    private val voiceFallback = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        voiceListening = false
-        if (result.resultCode == Activity.RESULT_OK) {
-            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            val text = matches?.firstOrNull()
-            if (!text.isNullOrBlank()) currentVoiceCallback?.invoke(text)
-            else Toast.makeText(this, "没有识别到内容", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     // 文档仍走系统文件选择（用户只对图片选择器的观感有要求）
     private val filePicker = registerForActivityResult(
         ActivityResultContracts.GetContent()
@@ -80,6 +65,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val services = (application as DeepSeekApp).services
         speechHelper = SpeechHelper(this)
+        // 启动即后台预加载端侧语音模型，首次点击麦克风时已就绪
+        speechHelper.initModel { ready ->
+            if (!ready) {
+                runOnUiThread {
+                    Toast.makeText(this, "语音模型加载失败，请检查后重试", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
 
         val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
@@ -137,44 +130,44 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** 拉起系统/厂商语音识别界面（国内 ROM 上比 Google 在线服务可靠得多） */
-    private fun launchSystemVoice() {
-        try {
-            voiceFallback.launch(speechHelper.buildIntent())
-            voiceListening = true
-        } catch (e: Exception) {
-            voiceListening = false
-            Toast.makeText(
-                this,
-                "此设备没有可用的语音识别服务，可试试输入法的麦克风或安装离线语音包",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
     private fun startListening(callback: (String) -> Unit) {
-        // 没有设备端离线识别包时，直接用系统语音界面，跳过必然报 ERROR_NETWORK 的在线服务
-        if (!speechHelper.hasOnDeviceRecognition()) {
-            launchSystemVoice()
+        if (!speechHelper.isModelReady()) {
+            // 模型还没就绪（可能刚启动首次解压），异步初始化后再开始
+            Toast.makeText(this, "语音模型加载中…", Toast.LENGTH_SHORT).show()
+            speechHelper.initModel { ready ->
+                if (ready) {
+                    runOnUiThread { beginRecognize(callback) }
+                } else {
+                    runOnUiThread {
+                        Toast.makeText(this, "语音模型加载失败，请重试", Toast.LENGTH_SHORT).show()
+                        voiceListening = false
+                    }
+                }
+            }
             return
         }
+        beginRecognize(callback)
+    }
+
+    private fun beginRecognize(callback: (String) -> Unit) {
         speechHelper.startListening(
             onResult = { text ->
                 voiceListening = false
                 callback(text)
             },
+            onPartial = { text ->
+                // 可选：把部分结果实时回填输入框，这里先不打扰输入，仅记录
+            },
             onError = { msg ->
                 voiceListening = false
                 Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             },
-            onState = { listening -> voiceListening = listening },
-            onNeedFallback = { launchSystemVoice() }
+            onState = { listening -> voiceListening = listening }
         )
     }
 
     private fun stopVoice() {
-        if (speechHelper.hasOnDeviceRecognition()) speechHelper.stopListening()
-        else voiceListening = false
+        speechHelper.stopListening()
     }
 
     /** 启动系统相机拍照（无需 CAMERA 权限，走 ACTION_IMAGE_CAPTURE 的 TakePicture 契约） */

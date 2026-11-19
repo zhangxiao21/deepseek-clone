@@ -10,7 +10,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -26,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -645,44 +643,22 @@ private fun InputBar(
                     .border(BorderStroke(1.dp, AppColors.Divider), RoundedCornerShape(26.dp))
                     .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
-                // 官方默认态：输入区居中「按住说话」，点击进入文字输入、长按直接唤起语音
-                var textMode by remember { mutableStateOf(false) }
-                if (!textMode && input.isBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = { textMode = true },
-                                    onLongPress = { onVoice() }
-                                )
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            if (voiceListening) "正在聆听… 点击麦克风结束" else "按住说话",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (voiceListening) AppColors.Primary else AppColors.TextPrimary
-                        )
-                    }
-                } else {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = onInputChange,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp, max = 110.dp),
-                        placeholder = {
-                            Text("发消息…", color = AppColors.TextSecondary,
-                                style = MaterialTheme.typography.bodyMedium)
-                        },
-                        maxLines = 4,
-                        shape = RoundedCornerShape(18.dp),
-                        colors = TextFieldDefaults.outlinedTextFieldColors(
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent
-                        )
+                // 默认即为文字输入框；语音输入改为点击麦克风按钮触发
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = onInputChange,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp, max = 110.dp),
+                    placeholder = {
+                        Text("发消息…", color = AppColors.TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium)
+                    },
+                    maxLines = 4,
+                    shape = RoundedCornerShape(18.dp),
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent
                     )
-                }
+                )
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     PillChip(

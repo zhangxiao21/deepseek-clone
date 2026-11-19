@@ -166,7 +166,6 @@ fun SettingsScreen(
                     onPersonalization = { page = Page.PERSONALIZATION },
                     onAbout = { page = Page.ABOUT },
                     onTts = { openTtsSettings(context) },
-                    onVoiceSettings = { openVoiceInputSettings(context) },
                     onUpdate = { showUpdateDialog = true },
                     onAgreement = { openUrl(context, "https://platform.deepseek.com/") },
                     onHelp = { openUrl(context, "https://api-docs.deepseek.com/zh-cn/") }
@@ -422,7 +421,6 @@ private fun MainPage(
     onPersonalization: () -> Unit,
     onAbout: () -> Unit,
     onTts: () -> Unit,
-    onVoiceSettings: () -> Unit,
     onUpdate: () -> Unit,
     onAgreement: () -> Unit,
     onHelp: () -> Unit
@@ -441,7 +439,7 @@ private fun MainPage(
         RowItem(Icons.Default.PlayArrow, "自动朗读回复",
             if (autoReadAloud) "已开启" else "已关闭", onAutoReadAloud),
         RowItem(Icons.Default.VolumeUp, "朗读音色", onClick = onTts),
-        RowItem(Icons.Default.Mic, "语音识别设置", "下载离线语音包", onVoiceSettings)
+        RowItem(Icons.Default.Mic, "语音识别", "端侧离线（本地识别）", onClick = {})
     ))
     CardGroup("关于", listOf(
         RowItem(Icons.Default.Info, "检查更新", "1.3 (4)", onUpdate),
@@ -693,15 +691,3 @@ private fun openTtsSettings(context: Context) {
     }
 }
 
-/** 语音能否离线用的关键：系统里是否装了中文离线语音包，给个直达入口 */
-private fun openVoiceInputSettings(context: Context) {
-    try {
-        context.startActivity(Intent("android.settings.VOICE_INPUT_SETTINGS"))
-    } catch (e: Exception) {
-        Toast.makeText(
-            context,
-            "请在系统「设置 → 语言和输入法 → 语音输入」中下载中文离线语音包",
-            Toast.LENGTH_LONG
-        ).show()
-    }
-}
