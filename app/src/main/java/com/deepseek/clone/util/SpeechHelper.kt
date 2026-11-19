@@ -206,18 +206,19 @@ class SpeechHelper(private val context: Context) {
             // 优先 UNPROCESSED（无 AGC/降噪，最贴近原始音频，Vosk 识别更准），
             // 部分设备不支持则回退到 VOICE_RECOGNITION
             val source = pickAudioSource()
-            recorder = try {
+            val rec2: AudioRecord = try {
                 AudioRecord(source, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT, bufferSize)
             } catch (e: Exception) {
                 AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
             }
-            if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+            recorder = rec2
+            if (rec2.state != AudioRecord.STATE_INITIALIZED) {
                 throw IOException("麦克风初始化失败")
             }
-            audioRecord = recorder
-            recorder.startRecording()
+            audioRecord = rec2
+            rec2.startRecording()
 
             val buffer = ByteArray(FRAME_BYTES)
             var silenceFrames = 0
@@ -228,7 +229,7 @@ class SpeechHelper(private val context: Context) {
                 // 最长监听保护：超过上限自动停止
                 if (System.currentTimeMillis() - startAt > MAX_LISTEN_MS) break
 
-                val read = recorder.read(buffer, 0, buffer.size)
+                val read = rec2.read(buffer, 0, buffer.size)
                 if (read < 0) break
                 if (read == 0) continue
                 // read 必须是偶数（PCM16），奇数时丢弃最后一个字节
