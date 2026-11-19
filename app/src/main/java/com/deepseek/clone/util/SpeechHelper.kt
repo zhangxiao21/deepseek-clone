@@ -90,7 +90,7 @@ class SpeechHelper(private val context: Context) {
         scope.launch {
             try {
                 val loaded = withContext(Dispatchers.IO) {
-                    LibVosk.setLogLevel(LogLevel.WARN)
+                    LibVosk.setLogLevel(LogLevel.WARNINGS)
                     val destDir = File(context.filesDir, MODEL_DEST_DIR)
                     if (!File(destDir, "am").exists()) {
                         destDir.mkdirs()
