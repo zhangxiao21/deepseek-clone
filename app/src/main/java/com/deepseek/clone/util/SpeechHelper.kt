@@ -92,7 +92,8 @@ class SpeechHelper(private val context: Context) {
                 val loaded = withContext(Dispatchers.IO) {
                     LibVosk.setLogLevel(LogLevel.WARNINGS)
                     val destDir = File(context.filesDir, MODEL_DEST_DIR)
-                    if (!File(destDir, "am").exists()) {
+                    // 以关键文件判断模型是否已完整解压，避免空目录/半解压导致误判
+                    if (!File(destDir, "am/final.mdl").exists()) {
                         destDir.mkdirs()
                         copyAssets(context, MODEL_ASSET_DIR, destDir)
                     }
@@ -112,15 +113,16 @@ class SpeechHelper(private val context: Context) {
         }
     }
 
-    /** 递归复制 assets 目录到目标目录 */
+    /** 递归复制 assets 目录到目标目录（保留完整子目录结构） */
     private fun copyAssets(ctx: Context, assetPath: String, dest: File) {
-        val list = ctx.assets.list(assetPath) ?: return
-        if (list.isEmpty()) {
-            // 是文件
+        val list = ctx.assets.list(assetPath)
+        if (list == null || list.isEmpty()) {
+            // 是文件：写入 dest 下与 assetPath 相对 MODEL_ASSET_DIR 相同的层级
+            val rel = assetPath.removePrefix(MODEL_ASSET_DIR).trimStart('/')
+            val target = File(dest, rel)
+            target.parentFile?.mkdirs()
             ctx.assets.open(assetPath).use { input ->
-                File(dest, assetPath.substringAfterLast('/')).outputStream().use { output ->
-                    input.copyTo(output)
-                }
+                target.outputStream().use { output -> input.copyTo(output) }
             }
             return
         }

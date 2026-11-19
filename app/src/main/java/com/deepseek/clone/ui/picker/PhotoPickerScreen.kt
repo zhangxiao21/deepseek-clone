@@ -42,6 +42,9 @@ import kotlinx.coroutines.withContext
 /** 一次最多选择的图片数（与官方客户端一致） */
 const val MAX_IMAGE_SELECTION = 9
 
+/** 相册文件夹：名称 + 该文件夹下的图片列表（按时间倒序） */
+data class ImageFolder(val name: String, val images: List<Uri>)
+
 private fun readImagesPermission(): String =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
         Manifest.permission.READ_MEDIA_IMAGES
@@ -51,22 +54,46 @@ private fun hasImagesPermission(context: Context): Boolean =
     ContextCompat.checkSelfPermission(context, readImagesPermission()) ==
         android.content.pm.PackageManager.PERMISSION_GRANTED
 
-/** 从 MediaStore 读取最近 300 张图片（按添加时间倒序） */
-private suspend fun loadRecentImages(context: Context): List<Uri> = withContext(Dispatchers.IO) {
-    val result = ArrayList<Uri>()
-    val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-    val projection = arrayOf(MediaStore.Images.Media._ID)
-    val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
-    try {
-        context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
-            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-            while (cursor.moveToNext() && result.size < 300) {
-                result.add(ContentUris.withAppendedId(collection, cursor.getLong(idColumn)))
+/**
+ * 从 MediaStore 读取全部图片，按相册文件夹分组。
+ * 返回按「最近更新文件夹在前、文件夹内最新图片在前」排序的分组列表。
+ */
+private suspend fun loadImagesByFolder(context: Context): List<ImageFolder> =
+    withContext(Dispatchers.IO) {
+        val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
+            MediaStore.Images.Media.DATE_ADDED
+        )
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+        // 用 LinkedHashMap 保证文件夹首次出现的顺序（即最新图片所在文件夹在前）
+        val folders = LinkedHashMap<String, MutableList<Pair<Long, Uri>>>()
+        try {
+            context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val bucketCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val bucket = cursor.getString(bucketCol) ?: "其他"
+                    val date = if (dateCol >= 0) cursor.getLong(dateCol) else 0L
+                    val uri = ContentUris.withAppendedId(collection, id)
+                    folders.getOrPut(bucket) { mutableListOf() }
+                        .add(date to uri)
+                }
             }
+        } catch (_: Exception) { /* 无权限或厂商 ROM 异常时返回空列表 */ }
+
+        folders.map { (name, items) ->
+            // 每个文件夹内已按 DATE_ADDED DESC 排序（因为全局查询就是倒序），无需再排
+            ImageFolder(name, items.map { it.second })
         }
-    } catch (_: Exception) { /* 无权限或厂商 ROM 异常时返回空列表 */ }
-    result
-}
+    }
+
+/** 把所有文件夹的图片摊平成一张列表（用于「最近图片」横条） */
+private suspend fun loadRecentImages(context: Context, limit: Int = 10): List<Uri> =
+    loadImagesByFolder(context).flatMap { it.images }.take(limit)
 
 /**
  * 应用内图片选择器：不再拉起系统文件/图库界面，直接在 App 里以网格展示相册，
@@ -84,8 +111,8 @@ fun PhotoPickerScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted = it }
 
-    val images by produceState(initialValue = emptyList<Uri>(), key1 = granted) {
-        value = if (granted) loadRecentImages(context) else emptyList()
+    val folders by produceState(initialValue = emptyList<ImageFolder>(), key1 = granted) {
+        value = if (granted) loadImagesByFolder(context) else emptyList()
     }
     val selected = remember { mutableStateListOf<Uri>() }
 
@@ -135,32 +162,45 @@ fun PhotoPickerScreen(
                         }
                     }
                 }
-                images.isEmpty() -> {
+                folders.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("相册里还没有图片", color = AppColors.TextSecondary)
                     }
                 }
                 else -> {
-                    // 用 LazyColumn + 每行 3 个，避免依赖 foundation 里仍标 Experimental 的 LazyVerticalGrid
+                    // 按文件夹分组展示：每个文件夹一个标题 + 三列图片网格
                     LazyColumn(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentPadding = PaddingValues(4.dp)
+                        contentPadding = PaddingValues(bottom = 8.dp)
                     ) {
-                        items(images.chunked(3)) { row ->
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                row.forEach { uri ->
-                                    val index = selected.indexOf(uri)
-                                    PhotoCell(
-                                        uri = uri,
-                                        order = if (index >= 0) index + 1 else 0,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = {
-                                            if (index >= 0) selected.remove(uri)
-                                            else if (selected.size < maxSelection) selected.add(uri)
-                                        }
-                                    )
+                        folders.forEach { folder ->
+                            item(key = "folder_${folder.name}") {
+                                Text(
+                                    "${folder.name}（${folder.images.size}）",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = AppColors.TextSecondary,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(AppColors.Surface)
+                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                )
+                            }
+                            items(folder.images.chunked(3), key = { "row_${folder.name}_${it.first()}" }) { row ->
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    row.forEach { uri ->
+                                        val index = selected.indexOf(uri)
+                                        PhotoCell(
+                                            uri = uri,
+                                            order = if (index >= 0) index + 1 else 0,
+                                            modifier = Modifier.weight(1f),
+                                            onClick = {
+                                                if (index >= 0) selected.remove(uri)
+                                                else if (selected.size < maxSelection) selected.add(uri)
+                                            }
+                                        )
+                                    }
+                                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                                 }
-                                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                             }
                         }
                     }
@@ -186,7 +226,7 @@ fun RecentImagesStrip(onPick: (Uri) -> Unit) {
     val context = LocalContext.current
     val granted by remember { mutableStateOf(hasImagesPermission(context)) }
     val images by produceState(initialValue = emptyList<Uri>(), key1 = granted) {
-        value = if (granted) loadRecentImages(context).take(10) else emptyList()
+        value = if (granted) loadRecentImages(context, limit = 10) else emptyList()
     }
     if (images.isEmpty()) return
     LazyRow(
