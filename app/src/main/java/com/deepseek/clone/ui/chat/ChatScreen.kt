@@ -297,9 +297,9 @@ private fun BrandWordmark() {
         Text(
             buildAnnotatedString {
                 append("Deep")
-                withStyle(SpanStyle(color = AppColors.Primary, fontWeight = FontWeight.Bold)) {
-                    append("Seek")
-                }
+                pushStyle(SpanStyle(color = AppColors.Primary, fontWeight = FontWeight.Bold))
+                append("Seek")
+                pop()
             },
             style = MaterialTheme.typography.titleMedium
         )
