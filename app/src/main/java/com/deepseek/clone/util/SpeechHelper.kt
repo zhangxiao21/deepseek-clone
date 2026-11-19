@@ -4,6 +4,9 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,14 +46,18 @@ class SpeechHelper(private val context: Context) {
         private const val MODEL_ASSET_DIR = "vosk-model-small-cn"
         /** 解压到 filesDir 下的目标目录名 */
         private const val MODEL_DEST_DIR = "vosk-model-small-cn"
-        /** 单帧音频字节数（约 0.1s） */
+        /** 单帧音频字节数（约 0.1s @16k/16bit） */
         private const val FRAME_BYTES = 3200
-        /** 无语音静音后自动结束的连续静音帧数（约 1.2s） */
-        private const val SILENCE_FRAMES_TO_STOP = 12
-        /** 简单 RMS 静音阈值 */
-        private const val SILENCE_RMS = 800.0
+        /** 无语音静音后自动结束的连续静音帧数（约 1.5s） */
+        private const val SILENCE_FRAMES_TO_STOP = 15
+        /** 简单 RMS 静音阈值（低于此值视为静音） */
+        private const val SILENCE_RMS = 500.0
+        /** 最长监听时长（毫秒），防止用户忘关导致无限录音 */
+        private const val MAX_LISTEN_MS = 60_000L
     }
 
+    /** 主线程 Handler：所有回调切回主线程，避免非主线程 Toast/写 state 导致闪退 */
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var model: Model? = null
@@ -89,7 +96,7 @@ class SpeechHelper(private val context: Context) {
         }
         scope.launch {
             try {
-                val loaded = withContext(Dispatchers.IO) {
+                withContext(Dispatchers.IO) {
                     LibVosk.setLogLevel(LogLevel.WARNINGS)
                     val destDir = File(context.filesDir, MODEL_DEST_DIR)
                     // 以关键文件判断模型是否已完整解压，避免空目录/半解压导致误判
@@ -102,11 +109,11 @@ class SpeechHelper(private val context: Context) {
                     m
                 }
                 modelReady = true
-                onDone(true)
+                mainHandler.post { onDone(true) }
             } catch (e: Exception) {
                 Log.e(TAG, "initModel", e)
                 modelReady = false
-                onDone(false)
+                mainHandler.post { onDone(false) }
             } finally {
                 initializing.set(false)
             }
@@ -142,7 +149,7 @@ class SpeechHelper(private val context: Context) {
     ) {
         val m = model
         if (m == null) {
-            onError("语音模型尚未就绪，请稍候重试")
+            mainHandler.post { onError("语音模型尚未就绪，请稍候重试") }
             return
         }
         if (running.get()) return
@@ -153,7 +160,7 @@ class SpeechHelper(private val context: Context) {
         this.onState = onState
 
         running.set(true)
-        onState(true)
+        mainHandler.post { onState(true) }
         worker = Thread({ recordLoop(m) }, "vosk-asr").apply { start() }
     }
 
@@ -195,14 +202,17 @@ class SpeechHelper(private val context: Context) {
             val minBuf = AudioRecord.getMinBufferSize(
                 SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
             )
-            val bufferSize = maxOf(minBuf * 2, FRAME_BYTES)
-            recorder = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize
-            )
+            val bufferSize = maxOf(minBuf * 2, FRAME_BYTES * 2)
+            // 优先 UNPROCESSED（无 AGC/降噪，最贴近原始音频，Vosk 识别更准），
+            // 部分设备不支持则回退到 VOICE_RECOGNITION
+            val source = pickAudioSource()
+            recorder = try {
+                AudioRecord(source, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT, bufferSize)
+            } catch (e: Exception) {
+                AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
+            }
             if (recorder.state != AudioRecord.STATE_INITIALIZED) {
                 throw IOException("麦克风初始化失败")
             }
@@ -212,13 +222,19 @@ class SpeechHelper(private val context: Context) {
             val buffer = ByteArray(FRAME_BYTES)
             var silenceFrames = 0
             var gotSpeech = false
+            val startAt = System.currentTimeMillis()
 
             while (running.get() && !Thread.currentThread().isInterrupted) {
+                // 最长监听保护：超过上限自动停止
+                if (System.currentTimeMillis() - startAt > MAX_LISTEN_MS) break
+
                 val read = recorder.read(buffer, 0, buffer.size)
                 if (read < 0) break
                 if (read == 0) continue
+                // read 必须是偶数（PCM16），奇数时丢弃最后一个字节
+                val n = read and 0x7FFFFFFE
 
-                val rms = rms(buffer, read)
+                val rms = rms(buffer, n)
                 if (rms > SILENCE_RMS) {
                     silenceFrames = 0
                     gotSpeech = true
@@ -229,23 +245,34 @@ class SpeechHelper(private val context: Context) {
                     }
                 }
 
-                if (rec.acceptWaveForm(buffer, read)) {
+                if (rec.acceptWaveForm(buffer, n)) {
                     val text = parseText(rec.result)
-                    if (text.isNotEmpty()) onPartial?.invoke(text)
+                    if (text.isNotEmpty()) {
+                        val t = text
+                        mainHandler.post { onPartial?.invoke(t) }
+                    }
                 } else {
                     val partial = parseText(rec.partialResult)
-                    if (partial.isNotEmpty()) onPartial?.invoke(partial)
+                    if (partial.isNotEmpty()) {
+                        val p = partial
+                        mainHandler.post { onPartial?.invoke(p) }
+                    }
                 }
             }
 
             // 收尾：拿到最终结果
             val final = parseText(rec.finalResult)
-            if (final.isNotEmpty()) onResult?.invoke(final)
-            else onError?.invoke("没有识别到内容")
+            if (final.isNotEmpty()) {
+                val f = final
+                mainHandler.post { onResult?.invoke(f) }
+            } else {
+                mainHandler.post { onError?.invoke("没有识别到内容") }
+            }
         } catch (e: Exception) {
             if (running.get() && !Thread.currentThread().isInterrupted) {
                 Log.e(TAG, "recordLoop", e)
-                onError?.invoke(e.message ?: "语音识别失败")
+                val msg = e.message ?: "语音识别失败"
+                mainHandler.post { onError?.invoke(msg) }
             }
         } finally {
             runCatching { recorder?.stop() }
@@ -254,22 +281,31 @@ class SpeechHelper(private val context: Context) {
             recognizer = null
             runCatching { rec?.close() }
             running.set(false)
-            onState?.invoke(false)
+            mainHandler.post { onState?.invoke(false) }
         }
     }
+
+    /** 选择音频源：Android 7+ 优先 UNPROCESSED，避免 AGC/降噪干扰识别准确率 */
+    private fun pickAudioSource(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
+            MediaRecorder.AudioSource.UNPROCESSED
+        else MediaRecorder.AudioSource.VOICE_RECOGNITION
 
     /** Vosk 返回 JSON {"text": "..."}，抽取 text 字段 */
     private fun parseText(json: String): String = try {
         JSONObject(json).optString("text", "").trim()
     } catch (_: Exception) { "" }
 
-    /** 简单 RMS（均方根）估算响度，用于静音检测 */
+    /** 简单 RMS（均方根）估算响度，用于静音检测；还原 16bit 有符号采样 */
     private fun rms(buffer: ByteArray, len: Int): Double {
         var sum = 0.0
         var count = 0
         var i = 0
         while (i < len - 1) {
-            val sample = (buffer[i + 1].toInt() shl 8) or (buffer[i].toInt() and 0xFF)
+            // little-endian 16bit PCM → 有符号 short
+            val lo = buffer[i].toInt() and 0xFF
+            val hi = buffer[i + 1].toInt()
+            val sample = (hi shl 8) or lo
             sum += (sample * sample).toDouble()
             count++
             i += 2
