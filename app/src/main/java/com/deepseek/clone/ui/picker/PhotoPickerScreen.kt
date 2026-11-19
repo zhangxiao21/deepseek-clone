@@ -19,7 +19,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
@@ -115,6 +117,8 @@ fun PhotoPickerScreen(
         value = if (granted) loadImagesByFolder(context) else emptyList()
     }
     val selected = remember { mutableStateListOf<Uri>() }
+    // 当前打开的文件夹：null = 文件夹列表，非 null = 该文件夹的图片网格
+    var currentFolder by remember { mutableStateOf<ImageFolder?>(null) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = AppColors.Background) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
@@ -123,15 +127,27 @@ fun PhotoPickerScreen(
                 modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.Default.Close, contentDescription = "关闭", tint = AppColors.TextPrimary)
+                if (currentFolder != null) {
+                    // 在文件夹内：左侧返回、右侧关闭
+                    IconButton(onClick = { currentFolder = null }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回",
+                            tint = AppColors.TextPrimary)
+                    }
+                } else {
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.Default.Close, contentDescription = "关闭",
+                            tint = AppColors.TextPrimary)
+                    }
                 }
                 Text(
-                    if (selected.isEmpty()) "选择图片" else "已选择 ${selected.size}/$maxSelection",
+                    if (currentFolder != null) currentFolder?.name.orEmpty()
+                    else if (selected.isEmpty()) "选择图片"
+                    else "已选择 ${selected.size}/$maxSelection",
                     style = MaterialTheme.typography.titleMedium,
                     color = AppColors.TextPrimary,
                     modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
                 )
                 Button(
                     onClick = { onConfirm(selected.toList()) },
@@ -167,25 +183,15 @@ fun PhotoPickerScreen(
                         Text("相册里还没有图片", color = AppColors.TextSecondary)
                     }
                 }
-                else -> {
-                    // 按文件夹分组展示：每个文件夹一个标题 + 三列图片网格
-                    LazyColumn(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentPadding = PaddingValues(bottom = 8.dp)
-                    ) {
-                        folders.forEach { folder ->
-                            item(key = "folder_${folder.name}") {
-                                Text(
-                                    "${folder.name}（${folder.images.size}）",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = AppColors.TextSecondary,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(AppColors.Surface)
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                                )
-                            }
-                            items(folder.images.chunked(3), key = { "row_${folder.name}_${it.first()}" }) { row ->
+                currentFolder != null -> {
+                    // 文件夹内：三列图片网格
+                    val folder = currentFolder
+                    if (folder != null) {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            contentPadding = PaddingValues(4.dp)
+                        ) {
+                            items(folder.images.chunked(3), key = { "row_${it.first()}" }) { row ->
                                 Row(modifier = Modifier.fillMaxWidth()) {
                                     row.forEach { uri ->
                                         val index = selected.indexOf(uri)
@@ -204,16 +210,82 @@ fun PhotoPickerScreen(
                             }
                         }
                     }
-                    Text(
-                        "最多可选 $maxSelection 张 · 点选图片可取消",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = AppColors.TextSecondary,
-                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                        textAlign = TextAlign.Center
-                    )
+                }
+                else -> {
+                    // 文件夹列表：每项封面缩略图 + 名称 + 数量
+                    LazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 4.dp)
+                    ) {
+                        items(folders) { folder ->
+                            FolderRow(
+                                folder = folder,
+                                onClick = { currentFolder = folder }
+                            )
+                        }
+                    }
                 }
             }
+
+            Text(
+                "最多可选 $maxSelection 张 · 点选图片可取消",
+                style = MaterialTheme.typography.labelSmall,
+                color = AppColors.TextSecondary,
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                textAlign = TextAlign.Center
+            )
         }
+    }
+}
+
+/** 文件夹列表项：封面缩略图 + 名称 + 图片数量 */
+@Composable
+private fun FolderRow(folder: ImageFolder, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val cover = folder.images.firstOrNull()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 封面：无封面时显示占位
+        Box(
+            modifier = Modifier
+                .size(54.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(AppColors.SurfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            if (cover != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context).data(cover).size(108).crossfade(true).build(),
+                    contentDescription = folder.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(Icons.Default.Image, null,
+                    tint = AppColors.TextSecondary, modifier = Modifier.size(24.dp))
+            }
+        }
+        Spacer(Modifier.width(14.dp))
+        Text(
+            folder.name,
+            style = MaterialTheme.typography.bodyLarge,
+            color = AppColors.TextPrimary,
+            modifier = Modifier.weight(1f),
+            maxLines = 1
+        )
+        Text(
+            "${folder.images.size}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = AppColors.TextSecondary
+        )
+        Spacer(Modifier.width(4.dp))
+        Icon(Icons.Default.ChevronRight, contentDescription = null,
+            tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
     }
 }
 
