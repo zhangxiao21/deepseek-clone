@@ -50,47 +50,59 @@ data class AppPalette(
     val bubbleAI: Color,
     val textPrimary: Color,
     val textSecondary: Color,
+    val textTertiary: Color,
+    val reasoningBg: Color,
+    val reasoningText: Color,
     val divider: Color,
     val error: Color,
     val success: Color,
     val onPrimary: Color,
-    val onBubbleUser: Color
+    val onBubbleUser: Color,
+    val bubbleUserBorder: Color
 )
 
 private val LightPalette = AppPalette(
     primary = Color(0xFF4D6BFE),
-    primaryDark = Color(0xFF3A54D6),
-    primaryLight = Color(0xFFEBEEFF),
+    primaryDark = Color(0xFF3B57E0),
+    primaryLight = Color(0xFFEBEFFF),
     background = Color(0xFFFFFFFF),
-    surface = Color(0xFFF7F8FA),
-    surfaceVariant = Color(0xFFEFF1F5),
-    bubbleUser = Color(0xFF4D6BFE),
-    bubbleAI = Color(0xFFF4F5F7),
-    textPrimary = Color(0xFF1A1A1A),
-    textSecondary = Color(0xFF6B7280),
-    divider = Color(0xFFE9EAEC),
+    surface = Color(0xFFF5F6F8),
+    surfaceVariant = Color(0xFFECEEF2),
+    bubbleUser = Color(0xFFEBEFFF),
+    bubbleAI = Color(0xFFF5F6F8),
+    textPrimary = Color(0xFF1A1B1E),
+    textSecondary = Color(0xFF6A6B70),
+    textTertiary = Color(0xFF9A9BA0),
+    reasoningBg = Color(0xFFF7F8FA),
+    reasoningText = Color(0xFF6E6F74),
+    divider = Color(0xFFE4E6EB),
     error = Color(0xFFE5484D),
-    success = Color(0xFF30A46C),
+    success = Color(0xFF2EBD85),
     onPrimary = Color(0xFFFFFFFF),
-    onBubbleUser = Color(0xFFFFFFFF)
+    onBubbleUser = Color(0xFF1A1B1E),
+    bubbleUserBorder = Color(0xFFD6DCFF)
 )
 
 private val DarkPalette = AppPalette(
-    primary = Color(0xFF8FA3FF),
-    primaryDark = Color(0xFFB7C5FF),
-    primaryLight = Color(0xFF2A3A7A),
-    background = Color(0xFF121212),
-    surface = Color(0xFF1E1E1E),
-    surfaceVariant = Color(0xFF2A2A2A),
-    bubbleUser = Color(0xFF3A54D6),
-    bubbleAI = Color(0xFF1E1E1E),
+    primary = Color(0xFF4D6BFE),
+    primaryDark = Color(0xFF3B57E0),
+    primaryLight = Color(0xFF1E2240),
+    background = Color(0xFF0E0E10),
+    surface = Color(0xFF1A1B1E),
+    surfaceVariant = Color(0xFF232428),
+    bubbleUser = Color(0xFF1E2240),
+    bubbleAI = Color(0xFF16171A),
     textPrimary = Color(0xFFECECEC),
-    textSecondary = Color(0xFFB0B0B0),
-    divider = Color(0xFF3A3A3A),
-    error = Color(0xFFFF6B6B),
-    success = Color(0xFF4CC38A),
-    onPrimary = Color(0xFF101442),
-    onBubbleUser = Color(0xFFFFFFFF)
+    textSecondary = Color(0xFF9A9BA0),
+    textTertiary = Color(0xFF6A6B70),
+    reasoningBg = Color(0xFF16171A),
+    reasoningText = Color(0xFF8A8B90),
+    divider = Color(0xFF2E2F33),
+    error = Color(0xFFE5484D),
+    success = Color(0xFF2EBD85),
+    onPrimary = Color(0xFFFFFFFF),
+    onBubbleUser = Color(0xFFECECEC),
+    bubbleUserBorder = Color(0xFF2A3360)
 )
 
 /**
@@ -120,44 +132,48 @@ object AppColors {
     val BubbleAI: Color get() = palette.value.bubbleAI
     val TextPrimary: Color get() = palette.value.textPrimary
     val TextSecondary: Color get() = palette.value.textSecondary
+    val TextTertiary: Color get() = palette.value.textTertiary
+    val ReasoningBg: Color get() = palette.value.reasoningBg
+    val ReasoningText: Color get() = palette.value.reasoningText
     val Divider: Color get() = palette.value.divider
     val Error: Color get() = palette.value.error
     val Success: Color get() = palette.value.success
     val OnPrimary: Color get() = palette.value.onPrimary
     val OnBubbleUser: Color get() = palette.value.onBubbleUser
+    val BubbleUserBorder: Color get() = palette.value.bubbleUserBorder
 }
 
 // 直接写字面量，避免顶层 val 初始化时绑定到某个固定调色板
 private val LightColors = lightColorScheme(
     primary = Color(0xFF4D6BFE),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFEBEEFF),
-    onPrimaryContainer = Color(0xFF3A54D6),
+    primaryContainer = Color(0xFFEBEFFF),
+    onPrimaryContainer = Color(0xFF3B57E0),
     secondary = Color(0xFF4D6BFE),
     background = Color(0xFFFFFFFF),
-    onBackground = Color(0xFF1A1A1A),
+    onBackground = Color(0xFF1A1B1E),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF1A1A1A),
-    surfaceVariant = Color(0xFFF7F8FA),
-    onSurfaceVariant = Color(0xFF6B7280),
-    outline = Color(0xFFE9EAEC),
+    onSurface = Color(0xFF1A1B1E),
+    surfaceVariant = Color(0xFFF5F6F8),
+    onSurfaceVariant = Color(0xFF6A6B70),
+    outline = Color(0xFFE4E6EB),
     error = Color(0xFFE5484D)
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF8FA3FF),
-    onPrimary = Color(0xFF101442),
-    primaryContainer = Color(0xFF2A3A7A),
-    onPrimaryContainer = Color(0xFFDCE4FF),
-    secondary = Color(0xFF8FA3FF),
-    background = Color(0xFF121212),
+    primary = Color(0xFF4D6BFE),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF1E2240),
+    onPrimaryContainer = Color(0xFFC5CDFF),
+    secondary = Color(0xFF4D6BFE),
+    background = Color(0xFF0E0E10),
     onBackground = Color(0xFFECECEC),
-    surface = Color(0xFF1E1E1E),
+    surface = Color(0xFF1A1B1E),
     onSurface = Color(0xFFECECEC),
-    surfaceVariant = Color(0xFF2A2A2A),
-    onSurfaceVariant = Color(0xFFB0B0B0),
-    outline = Color(0xFF3A3A3A),
-    error = Color(0xFFFF6B6B)
+    surfaceVariant = Color(0xFF232428),
+    onSurfaceVariant = Color(0xFF9A9BA0),
+    outline = Color(0xFF2E2F33),
+    error = Color(0xFFE5484D)
 )
 
 @Composable

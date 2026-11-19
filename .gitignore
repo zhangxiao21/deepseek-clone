@@ -1,0 +1,19 @@
+# Gradle / Android 构建产物
+.gradle/
+build/
+app/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# 项目本地数据（会话记忆、工作日志等，不提交）
+.workbuddy/
+
+# 系统文件
+Thumbs.db

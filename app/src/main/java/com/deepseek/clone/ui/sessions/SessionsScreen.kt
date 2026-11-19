@@ -21,6 +21,7 @@ import com.deepseek.clone.data.local.SecureStore
 import com.deepseek.clone.data.local.SessionEntity
 import com.deepseek.clone.data.repository.Repository
 import com.deepseek.clone.ui.theme.AppColors
+import com.deepseek.clone.ui.theme.WhaleLogo
 import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.Date
@@ -340,7 +341,7 @@ private fun DrawerUserRow(nickname: String, onSettings: () -> Unit) {
             modifier = Modifier.size(38.dp).clip(CircleShape).background(AppColors.PrimaryLight),
             contentAlignment = Alignment.Center
         ) {
-            Text("🐋", style = MaterialTheme.typography.titleMedium)
+            WhaleLogo(modifier = Modifier.size(22.dp))
         }
         Spacer(Modifier.width(12.dp))
         Text(nickname, style = MaterialTheme.typography.bodyLarge,

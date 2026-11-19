@@ -30,6 +30,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -42,6 +45,7 @@ import com.deepseek.clone.data.model.ServerToolEvent
 import com.deepseek.clone.data.model.UrlCitation
 import com.deepseek.clone.ui.picker.RecentImagesStrip
 import com.deepseek.clone.ui.theme.AppColors
+import com.deepseek.clone.ui.theme.WhaleLogo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,62 +114,62 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    // 官方空对话页顶栏不放标题；进入对话后才显示，点击可切换模型 / 重命名
-                    if (messages.isNotEmpty()) {
-                        Box {
-                            Column(modifier = Modifier.clickable { showModelMenu = true }) {
-                                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    // 官方顶栏：中央为鲸鱼图标 + DeepSeek 字标；进入对话后点击可切换模型 / 重命名
+                    Box {
+                        Column(
+                            modifier = Modifier
+                                .clickable { if (messages.isNotEmpty()) showModelMenu = true },
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            if (messages.isEmpty()) {
+                                BrandWordmark()
+                            } else {
+                                Text(title, style = MaterialTheme.typography.titleMedium,
+                                    maxLines = 1, fontWeight = FontWeight.SemiBold)
                                 Text(ModelOption.find(model).label,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = AppColors.TextSecondary)
                             }
-                            DropdownMenu(expanded = showModelMenu,
-                                onDismissRequest = { showModelMenu = false }) {
-                                ModelOption.ALL.forEach { option ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column {
-                                                Text(option.label)
-                                                Text(option.desc,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = AppColors.TextSecondary)
-                                            }
-                                        },
-                                        onClick = {
-                                            viewModel.setModel(option.id)
-                                            showModelMenu = false
-                                        },
-                                        leadingIcon = {
-                                            if (model == option.id) Icon(Icons.Default.Check, null,
-                                                tint = AppColors.Primary)
-                                        }
-                                    )
-                                }
+                        }
+                        DropdownMenu(expanded = showModelMenu,
+                            onDismissRequest = { showModelMenu = false }) {
+                            ModelOption.ALL.forEach { option ->
                                 DropdownMenuItem(
-                                    text = { Text("重命名对话") },
-                                    onClick = { showModelMenu = false; showRename = true }
+                                    text = {
+                                        Column {
+                                            Text(option.label)
+                                            Text(option.desc,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = AppColors.TextSecondary)
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.setModel(option.id)
+                                        showModelMenu = false
+                                    },
+                                    leadingIcon = {
+                                        if (model == option.id) Icon(Icons.Default.Check, null,
+                                            tint = AppColors.Primary)
+                                    }
                                 )
                             }
+                            DropdownMenuItem(
+                                text = { Text("重命名对话") },
+                                onClick = { showModelMenu = false; showRename = true }
+                            )
                         }
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.Menu, contentDescription = "会话列表")
+                        Icon(Icons.Default.Menu, contentDescription = "会话列表",
+                            tint = AppColors.TextSecondary)
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.setCotVisible(!cotVisible) }) {
-                        Icon(
-                            if (cotVisible) Icons.Default.VisibilityOff
-                            else Icons.Default.Visibility,
-                            contentDescription = if (cotVisible) "隐藏思维链" else "显示思维链",
-                            tint = AppColors.TextPrimary
-                        )
-                    }
                     IconButton(onClick = onNewChat) {
                         Icon(Icons.Default.Add, contentDescription = "新对话",
-                            tint = AppColors.TextPrimary)
+                            tint = AppColors.TextSecondary)
                     }
                 },
                 colors = TopAppBarDefaults.smallTopAppBarColors(containerColor = AppColors.Background)
@@ -213,7 +217,8 @@ fun ChatScreen(
                             content = liveContent,
                             toolEvents = toolEvents,
                             citations = citations,
-                            cotVisible = cotVisible
+                            cotVisible = cotVisible,
+                            modelLabel = ModelOption.find(model).label
                         )
                     }
                 }
@@ -274,15 +279,7 @@ private fun EmptyChatHint() {
         modifier = Modifier.fillMaxWidth().padding(top = 110.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            modifier = Modifier.size(56.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(AppColors.Primary),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("🐋", style = MaterialTheme.typography.headlineMedium,
-                color = AppColors.OnPrimary)
-        }
+        WhaleLogo(modifier = Modifier.size(56.dp))
         Spacer(Modifier.height(22.dp))
         Text("你好，我能帮什么忙吗？",
             style = MaterialTheme.typography.titleLarge,
@@ -290,6 +287,28 @@ private fun EmptyChatHint() {
             color = AppColors.TextPrimary)
     }
 }
+
+/** 原版品牌字标：鲸鱼图标 + "DeepSeek"，其中 "Seek" 染品牌蓝 */
+@Composable
+private fun BrandWordmark() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        WhaleLogo(modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            buildAnnotatedString {
+                append("Deep")
+                withStyle(SpanStyle(color = AppColors.Primary, fontWeight = FontWeight.Bold)) {
+                    append("Seek")
+                }
+            },
+            style = MaterialTheme.typography.titleMedium
+        )
+    }
+}
+
+/**
+ * 扁平化鲸鱼标志见 ui/theme/WhaleLogo.kt（共享组件 WhaleLogo）。
+ */
 
 @Composable
 private fun MessageBubble(
@@ -314,6 +333,16 @@ private fun MessageBubble(
             modifier = if (isUser) Modifier.widthIn(max = 300.dp) else Modifier.weight(1f),
             horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
         ) {
+            // 官方：AI 回复顶部带模型名（鲸鱼图标 + 模型名），用户消息无头部
+            if (!isUser) {
+                Text(
+                    ModelOption.find(msg.modelType ?: "").label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AppColors.TextTertiary,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
             // 思维链 CoT：官方是先思考后回答，思维块置于正文上方
             if (!isUser && cotVisible && !msg.thinking.isNullOrEmpty()) {
                 ThinkingBlock(msg.thinking, msg.thinkingElapsed, live = false)
@@ -326,6 +355,10 @@ private fun MessageBubble(
                         else RoundedCornerShape(6.dp)
                     )
                     .background(if (isUser) AppColors.BubbleUser else Color.Transparent)
+                    .border(
+                        if (isUser) BorderStroke(1.dp, AppColors.BubbleUserBorder) else BorderStroke(0.dp, Color.Transparent),
+                        if (isUser) RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp) else RoundedCornerShape(6.dp)
+                    )
                     .padding(if (isUser) 12.dp else 0.dp)
             ) {
                 if (isUser) {
@@ -366,44 +399,39 @@ private fun MessageBubble(
                 Row {
                     IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Default.ContentCopy, contentDescription = "复制",
-                            tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
+                            tint = AppColors.TextTertiary, modifier = Modifier.size(16.dp))
                     }
                     IconButton(onClick = onReadAloud, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Default.VolumeUp, contentDescription = "朗读",
-                            tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
+                            tint = AppColors.TextTertiary, modifier = Modifier.size(16.dp))
                     }
                     IconButton(onClick = onStopReadAloud, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Default.Stop, contentDescription = "停止朗读",
-                            tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
+                            tint = AppColors.TextTertiary, modifier = Modifier.size(16.dp))
                     }
                     if (onRegenerate != null) {
                         IconButton(onClick = onRegenerate, modifier = Modifier.size(28.dp)) {
                             Icon(Icons.Default.Refresh, contentDescription = "重新生成",
-                                tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
+                                tint = AppColors.TextTertiary, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
             }
         }
-        if (isUser) { Spacer(Modifier.width(8.dp)); Avatar(isUser = true) }
+        if (isUser) { Spacer(Modifier.width(8.dp)) }
     }
 }
 
 @Composable
 private fun Avatar(isUser: Boolean) {
-    Box(
-        modifier = Modifier.size(30.dp).clip(RoundedCornerShape(10.dp))
-            .background(if (isUser) AppColors.SurfaceVariant else AppColors.Primary),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(if (isUser) "我" else "🐋",
-            color = if (isUser) AppColors.TextSecondary else AppColors.OnPrimary,
-            fontWeight = if (isUser) FontWeight.Bold else FontWeight.Normal,
-            style = MaterialTheme.typography.bodyMedium)
+    if (isUser) {
+        // 原版用户消息无头像，仅气泡右对齐；这里不渲染占位
+        return
     }
+    WhaleLogo(modifier = Modifier.size(28.dp))
 }
 
-/** 思维链（CoT）展示块：显示耗时、可展开查看完整推理过程，生成中默认展开 */
+/** 思维链（CoT）展示块：原版凹陷面板 + 左侧 2pt 蓝色竖线 + 斜体灰色思考文字，可折叠 */
 @Composable
 private fun ThinkingBlock(thinking: String, elapsed: Double?, live: Boolean) {
     var expanded by remember { mutableStateOf(live) }
@@ -412,33 +440,53 @@ private fun ThinkingBlock(thinking: String, elapsed: Double?, live: Boolean) {
         live -> "正在深度思考…"
         else -> "已深度思考"
     }
-    Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-            .background(AppColors.Surface).padding(10.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(10.dp))
+            .background(AppColors.ReasoningBg)
     ) {
-        Row(modifier = Modifier.clickable { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Psychology, contentDescription = null,
-                tint = AppColors.Primary, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(headline, style = MaterialTheme.typography.labelMedium, color = AppColors.Primary)
-            Spacer(Modifier.weight(1f))
-            Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = "展开思维链", tint = AppColors.TextSecondary,
-                modifier = Modifier.size(18.dp))
-        }
-        // 折叠态给出首行预览，避免完全看不到 CoT
-        if (!expanded) {
-            val preview = thinking.lineSequence().firstOrNull().orEmpty().take(48)
-            if (preview.isNotEmpty()) {
-                Text(preview + if (thinking.length > 48) "…" else "",
-                    style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary,
-                    maxLines = 1, modifier = Modifier.padding(top = 6.dp))
+        // 左侧 2pt 品牌蓝竖线贯穿整个面板高度
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .fillMaxHeight()
+                .background(AppColors.Primary)
+        )
+        Column(modifier = Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Psychology, contentDescription = null,
+                    tint = AppColors.Primary, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(headline, style = MaterialTheme.typography.labelSmall,
+                    color = AppColors.TextSecondary, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = "展开思维链", tint = AppColors.TextTertiary,
+                    modifier = Modifier.size(18.dp))
             }
-        }
-        AnimatedVisibility(visible = expanded) {
-            Text(thinking, style = MaterialTheme.typography.bodySmall,
-                color = AppColors.TextSecondary, modifier = Modifier.padding(top = 8.dp))
+            // 折叠态给出首行预览，避免完全看不到 CoT
+            if (!expanded) {
+                val preview = thinking.lineSequence().firstOrNull().orEmpty().take(48)
+                if (preview.isNotEmpty()) {
+                    Text(preview + if (thinking.length > 48) "…" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AppColors.ReasoningText,
+                        fontStyle = FontStyle.Italic,
+                        maxLines = 1, modifier = Modifier.padding(top = 8.dp))
+                }
+            }
+            AnimatedVisibility(visible = expanded) {
+                // 原版：思考文字是斜体、比正文浅一档，是「内心独白」信号
+                Text(thinking, style = MaterialTheme.typography.bodySmall,
+                    color = AppColors.ReasoningText,
+                    fontStyle = FontStyle.Italic,
+                    modifier = Modifier.padding(top = 8.dp))
+            }
         }
     }
 }
@@ -477,12 +525,18 @@ private fun LiveResponse(
     content: String,
     toolEvents: List<ServerToolEvent>,
     citations: List<UrlCitation>,
-    cotVisible: Boolean
+    cotVisible: Boolean,
+    modelLabel: String
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Avatar(isUser = false)
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
+            Text(modelLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = AppColors.TextTertiary,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 6.dp))
             val searching = toolEvents.any { it.kind in listOf("search", "deep_search", "image_search") }
             if (searching && content.isEmpty()) {
                 Text("🔍 正在联网搜索…", style = MaterialTheme.typography.labelMedium,
@@ -647,10 +701,11 @@ private fun InputBar(
                     Spacer(Modifier.weight(1f))
 
                     if (isGenerating) {
-                        CircleButton(Icons.Default.Stop, "停止生成", onStop, filled = true)
+                        CircleButton(Icons.Default.Stop, "停止生成", onStop, filled = true,
+                            fillColor = AppColors.Error)
                         Spacer(Modifier.width(8.dp))
                     } else if (canSend) {
-                        CircleButton(Icons.Filled.Send, "发送", onSend, filled = true)
+                        CircleButton(Icons.Default.ArrowUpward, "发送", onSend, filled = true)
                         Spacer(Modifier.width(8.dp))
                     }
 
@@ -717,14 +772,15 @@ private fun PillChip(
         modifier = Modifier
             .clip(shape)
             .background(bg)
-            .border(BorderStroke(1.dp, if (selected) Color.Transparent else AppColors.Divider), shape)
+            .border(BorderStroke(1.dp, if (selected) AppColors.Primary else AppColors.Divider), shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, null, tint = fg, modifier = Modifier.size(15.dp))
         Spacer(Modifier.width(5.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, color = fg)
+        Text(label, style = MaterialTheme.typography.labelLarge,
+            color = fg, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
     }
 }
 
@@ -733,13 +789,14 @@ private fun CircleButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
     onClick: () -> Unit,
-    filled: Boolean = false
+    filled: Boolean = false,
+    fillColor: Color = AppColors.Primary
 ) {
     Box(
         modifier = Modifier
             .size(34.dp)
             .clip(androidx.compose.foundation.shape.CircleShape)
-            .background(if (filled) AppColors.Primary else Color.Transparent)
+            .background(if (filled) fillColor else Color.Transparent)
             .border(
                 BorderStroke(1.dp, if (filled) Color.Transparent else AppColors.Divider),
                 androidx.compose.foundation.shape.CircleShape

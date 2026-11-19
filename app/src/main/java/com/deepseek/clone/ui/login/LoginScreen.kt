@@ -2,7 +2,6 @@ package com.deepseek.clone.ui.login
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -13,7 +12,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -23,6 +21,7 @@ import com.deepseek.clone.core.ApiConfig
 import com.deepseek.clone.data.local.SecureStore
 import com.deepseek.clone.data.repository.Repository
 import com.deepseek.clone.ui.theme.AppColors
+import com.deepseek.clone.ui.theme.WhaleLogo
 import kotlinx.coroutines.launch
 
 /**
@@ -53,19 +52,8 @@ fun LoginScreen(
     ) {
         Spacer(Modifier.height(64.dp))
 
-        // Logo
-        Box(
-            modifier = Modifier
-                .size(72.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(AppColors.Primary),
-            contentAlignment = Alignment.Center
-        ) {
-            androidx.compose.material3.Text(
-                "🐋", color = AppColors.OnPrimary,
-                style = MaterialTheme.typography.displaySmall
-            )
-        }
+        // Logo：官方蓝色鲸鱼标志（扁平，不带圆角方块背景）
+        WhaleLogo(modifier = Modifier.size(72.dp))
 
         Spacer(Modifier.height(20.dp))
         Text("赛博大鲸鱼", style = MaterialTheme.typography.headlineMedium,
