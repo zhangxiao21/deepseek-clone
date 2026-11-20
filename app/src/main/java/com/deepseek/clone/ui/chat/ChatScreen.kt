@@ -17,6 +17,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -32,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -168,12 +170,10 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    // chat-demo：会话页顶栏右侧才有「新建对话」
-                    if (messages.isNotEmpty()) {
-                        IconButton(onClick = onNewChat) {
-                            Icon(Icons.Default.Add, contentDescription = "新对话",
-                                tint = AppColors.TextPrimary)
-                        }
+                    // 官方手机版：顶栏右侧加号始终显示（新建对话）
+                    IconButton(onClick = onNewChat) {
+                        Icon(Icons.Default.Add, contentDescription = "新对话",
+                            tint = AppColors.TextPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.smallTopAppBarColors(containerColor = AppColors.Background)
@@ -287,14 +287,17 @@ fun ChatScreen(
 
 @Composable
 private fun EmptyChatHint() {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 90.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    // 官方手机版欢迎语：鲸鱼图标 + 问候文字，同一行居中
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 90.dp, start = 24.dp, end = 24.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // 官方 chat-demo 欢迎页：居中问候语（移动端 20px/500），无大 Logo
-        Text("今天有什么可以帮到你？",
+        com.deepseek.clone.ui.theme.WhaleLogo(modifier = Modifier.size(30.dp))
+        Spacer(Modifier.width(12.dp))
+        Text("你好，我能帮什么忙吗？",
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.Bold,
             color = AppColors.TextPrimary)
     }
 }
@@ -630,9 +633,14 @@ private fun InputBar(
                 OutlinedTextField(
                     value = input,
                     onValueChange = onInputChange,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp, max = 110.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp, max = 110.dp)
+                        .pointerInput(Unit) {
+                            detectTapGestures(onLongPress = {
+                                if (voiceListening) onVoiceStop() else onVoice()
+                            })
+                        },
                     placeholder = {
-                        Text("请输入消息", color = AppColors.TextTertiary,
+                        Text("给 DeepSeek 发送消息", color = AppColors.TextTertiary,
                             style = MaterialTheme.typography.bodyMedium)
                     },
                     maxLines = 4,
@@ -645,41 +653,39 @@ private fun InputBar(
                 )
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    PillChip(
-                        selected = thinkingEnabled,
+                    // 官方手机版：深度思考 / 智能搜索为圆形描边图标按钮（无文字）
+                    CircleButton(
                         icon = Icons.Default.Psychology,
-                        label = "深度思考",
-                        onClick = { onThinkingToggle(!thinkingEnabled) }
+                        description = "深度思考",
+                        onClick = { onThinkingToggle(!thinkingEnabled) },
+                        filled = thinkingEnabled,
+                        fillColor = AppColors.PrimaryLight,
+                        tint = if (thinkingEnabled) AppColors.Primary else AppColors.TextSecondary
                     )
                     Spacer(Modifier.width(8.dp))
-                    PillChip(
-                        selected = searchEnabled,
+                    CircleButton(
                         icon = Icons.Default.Public,
-                        label = "智能搜索",
-                        onClick = { onSearchToggle(!searchEnabled) }
+                        description = "智能搜索",
+                        onClick = { onSearchToggle(!searchEnabled) },
+                        filled = searchEnabled,
+                        fillColor = AppColors.PrimaryLight,
+                        tint = if (searchEnabled) AppColors.Primary else AppColors.TextSecondary
                     )
                     Spacer(Modifier.weight(1f))
 
-                    // 官方顺序：语音 → 附件 → 发送/停止
-                    CircleButton(
-                        icon = if (voiceListening) Icons.Default.Close else Icons.Default.Mic,
-                        description = if (voiceListening) "结束语音输入" else "语音输入",
-                        onClick = { if (voiceListening) onVoiceStop() else onVoice() },
-                        filled = voiceListening
-                    )
-                    Spacer(Modifier.width(6.dp))
+                    // 官方顺序：回形针 → 发送/停止（语音改为长按输入框触发）
                     CircleButton(
                         icon = Icons.Default.AttachFile,
                         description = "添加图片或文件",
                         onClick = { showAttachPanel = !showAttachPanel }
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
                     if (isGenerating) {
                         CircleButton(Icons.Default.Stop, "停止生成", onStop, filled = true,
                             fillColor = AppColors.Error)
                     } else {
-                        // 官方：发送按钮常驻，不可发送时呈禁用态（半透明）
-                        CircleButton(Icons.Default.Send, "发送", onSend,
+                        // 官方：蓝色圆形 + 白色上箭头，常驻显示（禁用态半透明）
+                        CircleButton(Icons.Default.ArrowUpward, "发送", onSend,
                             filled = true, enabled = canSend)
                     }
                 }
@@ -720,43 +726,17 @@ private fun InputBar(
 }
 
 @Composable
-private fun PillChip(
-    selected: Boolean,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit
-) {
-    val bg = if (selected) AppColors.PrimaryLight else Color.Transparent
-    val fg = if (selected) AppColors.Primary else AppColors.TextPrimary
-    val borderColor = if (selected) AppColors.BubbleUserBorder else AppColors.Divider
-    val shape = RoundedCornerShape(18.dp)
-    Row(
-        modifier = Modifier
-            .height(34.dp)
-            .clip(shape)
-            .background(bg)
-            .border(BorderStroke(1.dp, borderColor), shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, null, tint = fg, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.width(4.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge,
-            color = fg, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
 private fun CircleButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
     onClick: () -> Unit,
     filled: Boolean = false,
     fillColor: Color = AppColors.Primary,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    tint: Color? = null
 ) {
     val alpha = if (enabled) 1f else 0.4f
+    val iconTint = tint ?: (if (filled) AppColors.OnPrimary else AppColors.TextTertiary)
     Box(
         modifier = Modifier
             .size(34.dp)
@@ -769,8 +749,7 @@ private fun CircleButton(
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, description,
-            tint = (if (filled) AppColors.OnPrimary else AppColors.TextTertiary).copy(alpha = alpha),
+        Icon(icon, description, tint = iconTint.copy(alpha = alpha),
             modifier = Modifier.size(18.dp))
     }
 }
