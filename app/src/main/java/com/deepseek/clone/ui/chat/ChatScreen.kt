@@ -30,7 +30,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -111,6 +110,7 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                modifier = Modifier.height(60.dp),
                 title = {
                     // 官方顶栏：中央为鲸鱼图标 + DeepSeek 字标；进入对话后点击可切换模型 / 重命名
                     Box {
@@ -215,8 +215,7 @@ fun ChatScreen(
                             content = liveContent,
                             toolEvents = toolEvents,
                             citations = citations,
-                            cotVisible = cotVisible,
-                            modelLabel = ModelOption.find(model).label
+                            cotVisible = cotVisible
                         )
                     }
                 }
@@ -247,16 +246,14 @@ fun ChatScreen(
                 onVoiceStop = onVoiceStop,
                 voiceListening = voiceListening
             )
-            // 官方 chat-demo：欢迎页输入框下方免责声明
-            if (messages.isEmpty()) {
-                Text(
-                    "内容由 AI 生成，请仔细甄别",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = AppColors.TextTertiary,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-            }
+            // 官方 chat-demo：输入框下方免责声明（所有页面常驻）
+            Text(
+                "内容由 AI 生成，请仔细甄别",
+                style = MaterialTheme.typography.labelSmall,
+                color = AppColors.TextTertiary,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
         }
     }
 
@@ -334,39 +331,27 @@ private fun MessageBubble(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
-        if (!isUser) { Avatar(isUser = false); Spacer(Modifier.width(8.dp)) }
+        // 官方 chat-demo：AI 消息无头像、无模型名头部，纯文本左对齐
         Column(
-            // AI 消息占满剩余宽度（官方风格：无气泡、全宽排版）；用户消息限制最大宽度
-            modifier = if (isUser) Modifier.widthIn(max = 300.dp) else Modifier.weight(1f),
+            // AI 消息占满剩余宽度；用户消息限制最大宽度
+            modifier = if (isUser) Modifier.widthIn(max = 300.dp) else Modifier.fillMaxWidth(),
             horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
         ) {
-            // 官方：AI 回复顶部带模型名（鲸鱼图标 + 模型名），用户消息无头部
-            if (!isUser) {
-                Text(
-                    ModelOption.find(msg.modelType ?: "").label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = AppColors.TextTertiary,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-            }
             // 思维链 CoT：官方是先思考后回答，思维块置于正文上方
             if (!isUser && cotVisible && !msg.thinking.isNullOrEmpty()) {
                 ThinkingBlock(msg.thinking, msg.thinkingElapsed, live = false)
                 Spacer(Modifier.height(8.dp))
             }
+            // 官方 chat-demo 用户气泡：统一圆角 22px、浅蓝底、无边框、padding 10x16
             Box(
                 modifier = Modifier
                     .clip(
-                        if (isUser) RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
+                        if (isUser) RoundedCornerShape(22.dp)
                         else RoundedCornerShape(6.dp)
                     )
                     .background(if (isUser) AppColors.BubbleUser else Color.Transparent)
-                    .border(
-                        if (isUser) BorderStroke(1.dp, AppColors.BubbleUserBorder) else BorderStroke(0.dp, Color.Transparent),
-                        if (isUser) RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp) else RoundedCornerShape(6.dp)
-                    )
-                    .padding(if (isUser) 12.dp else 0.dp)
+                    .then(if (isUser) Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                          else Modifier)
             ) {
                 if (isUser) {
                     Column {
@@ -425,74 +410,48 @@ private fun MessageBubble(
                 }
             }
         }
-        if (isUser) { Spacer(Modifier.width(8.dp)) }
     }
 }
 
-@Composable
-private fun Avatar(isUser: Boolean) {
-    if (isUser) {
-        // 原版用户消息无头像，仅气泡右对齐；这里不渲染占位
-        return
-    }
-    WhaleLogo(modifier = Modifier.size(28.dp))
-}
-
-/** 思维链（CoT）展示块：原版凹陷面板 + 左侧 2pt 蓝色竖线 + 斜体灰色思考文字，可折叠 */
+/** 思维链（CoT）：对齐官方 chat-demo —— 可折叠标题行 + 左侧圆点/细竖线 + 小号灰色正文，无凹陷面板 */
 @Composable
 private fun ThinkingBlock(thinking: String, elapsed: Double?, live: Boolean) {
     var expanded by remember { mutableStateOf(live) }
     val headline = when {
-        elapsed != null -> "已深度思考（用时 %.1f 秒）".format(elapsed)
-        live -> "正在深度思考…"
-        else -> "已深度思考"
+        elapsed != null -> "已思考（用时 %.1f 秒）".format(elapsed)
+        live -> "正在思考…"
+        else -> "已思考"
     }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .clip(RoundedCornerShape(10.dp))
-            .background(AppColors.ReasoningBg)
-    ) {
-        // 左侧 2pt 品牌蓝竖线贯穿整个面板高度
-        Box(
-            modifier = Modifier
-                .width(2.dp)
-                .fillMaxHeight()
-                .background(AppColors.Primary)
-        )
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.Psychology, contentDescription = null,
-                    tint = AppColors.Primary, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(headline, style = MaterialTheme.typography.labelSmall,
-                    color = AppColors.TextSecondary, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.weight(1f))
-                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = "展开思维链", tint = AppColors.TextTertiary,
-                    modifier = Modifier.size(18.dp))
-            }
-            // 折叠态给出首行预览，避免完全看不到 CoT
-            if (!expanded) {
-                val preview = thinking.lineSequence().firstOrNull().orEmpty().take(48)
-                if (preview.isNotEmpty()) {
-                    Text(preview + if (thinking.length > 48) "…" else "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = AppColors.ReasoningText,
-                        fontStyle = FontStyle.Italic,
-                        maxLines = 1, modifier = Modifier.padding(top = 8.dp))
+    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
+        // 标题行：品牌蓝思考图标 + 次要色文字 + 折叠箭头，高 34dp
+        Row(
+            modifier = Modifier.height(34.dp).clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Psychology, contentDescription = null,
+                tint = AppColors.Primary, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(headline, style = MaterialTheme.typography.bodyMedium,
+                color = AppColors.TextSecondary)
+            Spacer(Modifier.weight(1f))
+            Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = "展开思维链", tint = AppColors.TextSecondary,
+                modifier = Modifier.size(16.dp))
+        }
+        AnimatedVisibility(visible = expanded) {
+            // 官方：左侧圆点 + 1px 竖线，正文小号次要色、非斜体
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.width(16.dp).padding(top = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(Modifier.size(8.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(AppColors.TextTertiary))
+                    Box(Modifier.width(1.dp).weight(1f).background(AppColors.Divider))
                 }
-            }
-            AnimatedVisibility(visible = expanded) {
-                // 原版：思考文字是斜体、比正文浅一档，是「内心独白」信号
                 Text(thinking, style = MaterialTheme.typography.bodySmall,
-                    color = AppColors.ReasoningText,
-                    fontStyle = FontStyle.Italic,
-                    modifier = Modifier.padding(top = 8.dp))
+                    color = AppColors.TextSecondary,
+                    modifier = Modifier.weight(1f).padding(start = 10.dp, bottom = 6.dp))
             }
         }
     }
@@ -532,38 +491,28 @@ private fun LiveResponse(
     content: String,
     toolEvents: List<ServerToolEvent>,
     citations: List<UrlCitation>,
-    cotVisible: Boolean,
-    modelLabel: String
+    cotVisible: Boolean
 ) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-        Avatar(isUser = false)
-        Spacer(Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(modelLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = AppColors.TextTertiary,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(bottom = 6.dp))
-            val searching = toolEvents.any { it.kind in listOf("search", "deep_search", "image_search") }
-            if (searching && content.isEmpty()) {
-                Text("🔍 正在联网搜索…", style = MaterialTheme.typography.labelMedium,
+    Column(modifier = Modifier.fillMaxWidth()) {
+        val searching = toolEvents.any { it.kind in listOf("search", "deep_search", "image_search") }
+        if (searching && content.isEmpty()) {
+            Text("🔍 正在联网搜索…", style = MaterialTheme.typography.labelMedium,
+                color = AppColors.Primary)
+        }
+        if (citations.isNotEmpty()) CitationsCard(citations)
+        if (cotVisible && thinking.isNotEmpty()) {
+            ThinkingBlock(thinking, null, live = true)
+        }
+        if (content.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            MarkdownText(content)
+        } else if (thinking.isEmpty() && !searching) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp,
                     color = AppColors.Primary)
-            }
-            if (citations.isNotEmpty()) CitationsCard(citations)
-            if (cotVisible && thinking.isNotEmpty()) {
-                ThinkingBlock(thinking, null, live = true)
-            }
-            if (content.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                MarkdownText(content)
-            } else if (thinking.isEmpty() && !searching) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp,
-                        color = AppColors.Primary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("思考中…", style = MaterialTheme.typography.bodyMedium,
-                        color = AppColors.TextSecondary)
-                }
+                Spacer(Modifier.width(8.dp))
+                Text("思考中…", style = MaterialTheme.typography.bodyMedium,
+                    color = AppColors.TextSecondary)
             }
         }
     }
@@ -796,7 +745,7 @@ private fun CircleButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, description,
-            tint = (if (filled) AppColors.OnPrimary else AppColors.TextPrimary).copy(alpha = alpha),
+            tint = (if (filled) AppColors.OnPrimary else AppColors.TextTertiary).copy(alpha = alpha),
             modifier = Modifier.size(18.dp))
     }
 }
