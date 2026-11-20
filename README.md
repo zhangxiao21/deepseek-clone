@@ -134,41 +134,26 @@ export JAVA_HOME=/path/to/jdk-17
 - Files API：`POST /files`（multipart，`purpose` 字段在 `file` 之前），返回 `file_id`，消息用 `{"type":"file","file_id":"..."}` 引用
 - purpose：图片/文本用 `user_data`，PDF/Word/PPT 用 `rich_layout_recognition`（图文混排）或 `text_recognition`
 
-> ⚠️ **HTTP 400 坑（已修）**：引用已上传文件时，content part **只能**带 `type` + `file_id`，
-> **绝不能同时带 `filename`**。否则服务端报
-> `messages[n].content[m]: file cannot have filename when file_id is present`。
-> 旧实现把文件名一起塞进 `ContentPart`，还把该 part 落库进 `fileRefsJson`，
-> 导致下一轮回传历史时必失败。现在：
+> ⚠️ **HTTP 400 坑（已修）**：引用已上传文件时，content part **只能**带 `type` + `file_id`，**绝不能同时带 `filename`**。否则服务端报 `messages[n].content[m]: file cannot have filename when file_id is present`。旧实现把文件名一起塞进 `ContentPart`，还把该 part 落库进 `fileRefsJson`，导致下一轮回传历史时必失败。现在：
 > - 上传成功只构造 `ContentPart(type="file", fileId=id)`；文件名另存 `attachmentNamesJson`，仅本地 UI 用；
-> - `Repository.sanitizeParts()` 在每次 `buildMessages` 前清洗所有 part（含历史落库的旧脏数据），
->   保证发往 API 的 part 永远合法。
+> - `Repository.sanitizeParts()` 在每次 `buildMessages` 前清洗所有 part（含历史落库的旧脏数据），保证发往 API 的 part 永远合法。
 
 ### 4.4 SSE 流式输出
 
-> ⚠️ **「发送后无响应 / 全部生成完才一次性吐出」坑（已修）**：`SseParser.parse` 用
-> `BufferedReader.readLine()` 做**阻塞式网络读**，而 flow 默认在 collector 的协程上下文执行 ——
-> `viewModelScope.launch` 是主线程，于是整个生成期间主线程被占死，Compose 无法重组。
-> 现在 `parse()` 末尾加 `.flowOn(Dispatchers.IO)`，阻塞读在 IO 线程，主线程只负责更新 StateFlow。
+> ⚠️ **「发送后无响应 / 全部生成完才一次性吐出」坑（已修）**：`SseParser.parse` 用 `BufferedReader.readLine()` 做**阻塞式网络读**，而 flow 默认在 collector 的协程上下文执行 —— `viewModelScope.launch` 是主线程，于是整个生成期间主线程被占死，Compose 无法重组。现在 `parse()` 末尾加 `.flowOn(Dispatchers.IO)`，阻塞读在 IO 线程，主线程只负责更新 StateFlow。
 
-- 流式请求头：`Accept: text/event-stream`、`Cache-Control: no-cache`、
-  `Accept-Encoding: identity`（禁用 OkHttp 透明 gzip，避免中间层缓冲整个响应）；
-  `AuthInterceptor` 只在请求未自带 `Accept` 时才补 `application/json`，不再覆盖流式头。
-- `readTimeout(0)` 永不超时，服务端静默时 UI 会永远卡在「生成中」。加两段式看门狗：
-  首个 SSE 事件 60s 未到、或事件中静默超过 120s，主动中断并提示「服务长时间无响应」。
-- `stop()` / 超时会 `close()` 响应体，让 IO 上阻塞的 `readLine()` 立刻抛错退出；
-  收尾用 `withContext(NonCancellable)` 包住，保证已生成的部分内容仍会落库、连接被释放。
+- 流式请求头：`Accept: text/event-stream`、`Cache-Control: no-cache`、`Accept-Encoding: identity`（禁用 OkHttp 透明 gzip，避免中间层缓冲整个响应）；`AuthInterceptor` 只在请求未自带 `Accept` 时才补 `application/json`，不再覆盖流式头。
+- `readTimeout(0)` 永不超时，服务端静默时 UI 会永远卡在「生成中」。加两段式看门狗：首个 SSE 事件 60s 未到、或事件中静默超过 120s，主动中断并提示「服务长时间无响应」。
+- `stop()` / 超时会 `close()` 响应体，让 IO 上阻塞的 `readLine()` 立刻抛错退出；收尾用 `withContext(NonCancellable)` 包住，保证已生成的部分内容仍会落库、连接被释放。
 
 ### 4.5 长期记忆与上下文压缩
 
 官方 API 无状态，每轮都要把"该让模型知道的东西"重新发一遍。这两项由 `ContextEngine` 负责：
 
 - **system prompt** = 人设 + 长期记忆（跨会话用户事实）+ 本会话较早轮次的压缩摘要
-- **长期记忆**：每轮结束后用一次轻量非流式 `chat/completions`（`stream:false`）抽取稳定事实，
-  JSON 数组解析 + 去重，最多 40 条，持久化在加密存储
-- **上下文压缩**：历史 > 30 条时，把「缓存摘要之后、最近 24 条之前」的新增旧消息压成 ≤600 字摘要，
-  按会话缓存并增量更新，只回传最近 24 条原文
-- **失败静默降级**：所有辅助调用带 25s 超时、全程 try/catch，网络/解析失败一律忽略，
-  绝不阻断主对话；压缩结果刻意滞后一轮使用，保证首字不被拖慢
+- **长期记忆**：每轮结束后用一次轻量非流式 `chat/completions`（`stream:false`）抽取稳定事实，JSON 数组解析 + 去重，最多 40 条，持久化在加密存储
+- **上下文压缩**：历史 > 30 条时，把「缓存摘要之后、最近 24 条之前」的新增旧消息压成 ≤600 字摘要，按会话缓存并增量更新，只回传最近 24 条原文
+- **失败静默降级**：所有辅助调用带 25s 超时、全程 try/catch，网络/解析失败一律忽略，绝不阻断主对话；压缩结果刻意滞后一轮使用，保证首字不被拖慢
 - 设置 → 记忆与上下文：三个开关（长期记忆 / 上下文压缩 / 显示思维链）+ 记忆查看/编辑/清空
 
 ### 4.6 导入 zip
@@ -238,7 +223,7 @@ export JAVA_HOME=/path/to/jdk-17
 
 ## 六、工程结构
 
-```text
+```
 DeepSeekApp/
 ├── gradlew / gradlew.bat / gradle/wrapper/*   # Gradle 7.3.3 wrapper
 ├── settings.gradle / build.gradle / gradle.properties
@@ -251,21 +236,20 @@ DeepSeekApp/
     │   │   ├── model/Dtos.kt                   # OpenAI 兼容 DTO
     │   │   ├── remote/                         # Retrofit/OkHttp/SSE
     │   │   ├── local/                          # JSON存储/Keystore
-│   │   ├── importer/ChatZipManager.kt      # zip 导入导出
-│   │   └── repository/
-│   │       ├── Repository.kt                # 业务编排 / 请求构造 / part 清洗
-│   │       └── ContextEngine.kt             # 长期记忆 + 上下文压缩 + system prompt
+    │   ├── importer/ChatZipManager.kt          # zip 导入导出
+    │   └── repository/
+    │       ├── Repository.kt                   # 业务编排 / 请求构造 / part 清洗
+    │       └── ContextEngine.kt                # 长期记忆 + 上下文压缩 + system prompt
     │   └── ui/                                 # Compose 界面
     │       ├── chat/                           # 聊天页（胶囊输入栏 / CoT / 三宫格附件面板）
-    │       ├── picker/PhotoPickerScreen.kt    # 应用内相册多选 + 最近图片横条
-    │       ├── sessions/                      # 官方抽屉风格会话列表（时间分组）
+    │       ├── picker/PhotoPickerScreen.kt     # 应用内相册多选 + 最近图片横条
+    │       ├── sessions/                       # 官方抽屉风格会话列表（时间分组）
     │       ├── settings/ / login/ / theme/
     │   └── util/                               # SpeechHelper / FileHelper / ReadAloudHelper
     └── res/
 ```
 
 私有接口时代的 PoW 计算（`DeepSeekPow.kt`）、网页版流式接口（`StreamApi.kt`）及 Room/kapt 注解处理已彻底移除；登录页已改为官方 API Key 输入。
-
 
 ---
 
