@@ -4,6 +4,7 @@ import com.deepseek.clone.data.model.*
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
+import retrofit2.Call
 import retrofit2.Response
 import retrofit2.http.*
 
@@ -34,8 +35,8 @@ interface DeepSeekApi {
         @Part file: MultipartBody.Part
     ): Response<FileObject>
 
-    /** 官方 chat-demo 同款 ASR：multipart 上传 WAV/Ogg，一次返回 {"text": "..."}。同步调用（工作线程内）。 */
+    /** 官方 chat-demo 同款 ASR：multipart 上传 WAV/Ogg，一次返回 {"text": "..."}。同步调用（工作线程内 .execute()）。 */
     @Multipart
     @POST("v1/tools/asr")
-    fun transcribe(@Part file: MultipartBody.Part): Response<AsrResponse>
+    fun transcribe(@Part file: MultipartBody.Part): Call<AsrResponse>
 }
