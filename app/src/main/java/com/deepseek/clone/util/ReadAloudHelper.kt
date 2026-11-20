@@ -2,12 +2,18 @@ package com.deepseek.clone.util
 
 import android.content.Context
 import android.speech.tts.TextToSpeech
-import android.widget.Toast
+import android.speech.tts.UtteranceProgressListener
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
-/** 朗读助手：TextToSpeech 系统合成，中文优先 */
+/** 朗读助手：TextToSpeech 系统合成，中文优先。isSpeaking 供 UI 显示音波动画。 */
 class ReadAloudHelper(context: Context) {
     private var tts: TextToSpeech? = null
+
+    private val _isSpeaking = MutableStateFlow(false)
+    val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
     init {
         // 用局部引用接收回调，避免在属性初始化器中引用自身
@@ -18,6 +24,14 @@ class ReadAloudHelper(context: Context) {
                 if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                     engine?.setLanguage(Locale.US)
                 }
+                engine?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) { _isSpeaking.value = true }
+                    override fun onDone(utteranceId: String?) { _isSpeaking.value = false }
+                    override fun onError(utteranceId: String?) { _isSpeaking.value = false }
+                    override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                        _isSpeaking.value = false
+                    }
+                })
             }
         }
     }
@@ -30,7 +44,14 @@ class ReadAloudHelper(context: Context) {
         tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "ds_tts")
     }
 
-    fun stop() { tts?.stop() }
+    fun stop() {
+        tts?.stop()
+        _isSpeaking.value = false
+    }
 
-    fun destroy() { tts?.shutdown(); tts = null }
+    fun destroy() {
+        tts?.shutdown()
+        tts = null
+        _isSpeaking.value = false
+    }
 }

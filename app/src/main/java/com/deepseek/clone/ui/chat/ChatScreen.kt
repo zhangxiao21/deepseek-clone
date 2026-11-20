@@ -5,8 +5,15 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -65,6 +73,7 @@ fun ChatScreen(
     val toolEvents by viewModel.toolEvents.collectAsState()
     val citations by viewModel.liveCitations.collectAsState()
     val error by viewModel.error.collectAsState()
+    val isSpeaking by viewModel.isSpeaking.collectAsState()
     val model by viewModel.currentModel.collectAsState()
     val vmTitle by viewModel.sessionTitle.collectAsState()
     val cotVisible by viewModel.cotVisible.collectAsState()
@@ -199,6 +208,7 @@ fun ChatScreen(
                         onCopy = { copyToClipboard(context, msg.content) },
                         onReadAloud = { viewModel.readAloud(msg.content) },
                         onStopReadAloud = { viewModel.stopReadAloud() },
+                        isSpeaking = isSpeaking,
                         onRegenerate = if (isLastAssistant && !isGenerating) {
                             { viewModel.regenerate(thinkingEnabled, searchEnabled) }
                         } else null
@@ -299,6 +309,7 @@ private fun MessageBubble(
     onCopy: () -> Unit,
     onReadAloud: () -> Unit,
     onStopReadAloud: () -> Unit,
+    isSpeaking: Boolean,
     onRegenerate: (() -> Unit)?
 ) {
     val isUser = msg.role == "user"
@@ -368,13 +379,18 @@ private fun MessageBubble(
                         Icon(Icons.Default.ContentCopy, contentDescription = "复制",
                             tint = AppColors.TextTertiary, modifier = Modifier.size(16.dp))
                     }
-                    IconButton(onClick = onReadAloud, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.VolumeUp, contentDescription = "朗读",
-                            tint = AppColors.TextTertiary, modifier = Modifier.size(16.dp))
-                    }
-                    IconButton(onClick = onStopReadAloud, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Stop, contentDescription = "停止朗读",
-                            tint = AppColors.TextTertiary, modifier = Modifier.size(16.dp))
+                    // 官方风格：朗读中显示跳动音波，点击停止；否则显示喇叭
+                    IconButton(
+                        onClick = if (isSpeaking) onStopReadAloud else onReadAloud,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        if (isSpeaking) {
+                            PlayingBars(color = AppColors.Primary,
+                                modifier = Modifier.size(18.dp))
+                        } else {
+                            Icon(Icons.Default.VolumeUp, contentDescription = "朗读",
+                                tint = AppColors.TextTertiary, modifier = Modifier.size(16.dp))
+                        }
                     }
                     if (onRegenerate != null) {
                         IconButton(onClick = onRegenerate, modifier = Modifier.size(28.dp)) {
@@ -384,6 +400,40 @@ private fun MessageBubble(
                     }
                 }
             }
+        }
+    }
+}
+
+/** 朗读中音波动画：4 根圆角柱子错相跳动，对齐官方 ic_playing_bars_24.json */
+@Composable
+private fun PlayingBars(color: Color, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition()
+    // 官方 96 帧 / 60fps = 1.6s 一个周期，4 根柱子相位依次错开
+    val phase = transition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+    Canvas(modifier = modifier) {
+        val barW = size.width / 9f
+        val gap = size.width / 9f
+        val maxH = size.height * 0.9f
+        val minH = size.height * 0.28f
+        for (i in 0..3) {
+            // 每根柱子相位错开，形成波浪
+            val offset = (phase.value + i * 0.25f) % 1f
+            val wave = kotlin.math.sin(offset * Math.PI).toFloat()
+            val h = minH + (maxH - minH) * wave
+            val x = gap + i * (barW + gap)
+            val y = (size.height - h) / 2f
+            drawRoundRect(
+                color = color,
+                topLeft = androidx.compose.ui.geometry.Offset(x, y),
+                size = androidx.compose.ui.geometry.Size(barW, h),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW / 2f)
+            )
         }
     }
 }
@@ -771,12 +821,25 @@ private fun AttachmentThumb(path: String, name: String, modifier: Modifier = Mod
             modifier = modifier.clip(shape).background(AppColors.SurfaceVariant)
         )
     } else {
+        // 官方文件类型图标：按扩展名选 PDF / Excel / 图片 / 文本
+        val typeIcon = when {
+            name.endsWith(".pdf", true) -> R.drawable.file_pdf
+            name.endsWith(".xls", true) || name.endsWith(".xlsx", true) ||
+                name.endsWith(".csv", true) -> R.drawable.file_excel
+            name.endsWith(".png", true) || name.endsWith(".jpg", true) ||
+                name.endsWith(".jpeg", true) || name.endsWith(".webp", true) -> R.drawable.file_image
+            else -> R.drawable.file_text
+        }
         Box(
             modifier = modifier.clip(shape).background(AppColors.SurfaceVariant),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.AttachFile, contentDescription = name,
-                tint = AppColors.TextSecondary, modifier = Modifier.size(22.dp))
+            Image(
+                painter = painterResource(typeIcon),
+                contentDescription = name,
+                modifier = Modifier.size(28.dp),
+                contentScale = ContentScale.Fit
+            )
         }
     }
 }

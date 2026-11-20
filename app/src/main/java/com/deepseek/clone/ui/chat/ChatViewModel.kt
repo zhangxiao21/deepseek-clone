@@ -29,6 +29,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         /** 生成过程中两个事件之间的最大静默时间 */
         private const val STALL_TIMEOUT_MS = 120_000L
         private const val WATCHDOG_INTERVAL_MS = 10_000L
+        /** 朗读状态的空兜底（正常不会用到，ViewModel 一定运行在 DeepSeekApp 中） */
+        private val FALLBACK_SPEAKING: StateFlow<Boolean> =
+            MutableStateFlow(false)
     }
     private val repo: com.deepseek.clone.data.repository.Repository =
         (app as DeepSeekApp).services.repository
@@ -54,6 +57,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+
+    /** 朗读状态（来自系统 TTS），供 UI 显示跳动的音波动画 */
+    val isSpeaking: StateFlow<Boolean>
+        get() = (getApplication() as? DeepSeekApp)?.readAloud?.isSpeaking
+            ?: FALLBACK_SPEAKING
 
     private val _currentModel = MutableStateFlow(ApiConfig.MODEL_FLASH)
     val currentModel: StateFlow<String> = _currentModel.asStateFlow()

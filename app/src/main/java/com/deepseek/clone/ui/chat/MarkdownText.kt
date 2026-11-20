@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.*
@@ -24,11 +25,28 @@ import com.deepseek.clone.ui.theme.AppColors
 fun MarkdownText(markdown: String, modifier: Modifier = Modifier) {
     val lines = markdown.replace("\r\n", "\n").split("\n")
     var inCodeBlock = false
+    var inMathBlock = false
     val codeBuffer = StringBuilder()
+    val mathBuffer = StringBuilder()
 
     Column(modifier = modifier.fillMaxWidth()) {
         for (line in lines) {
             when {
+                line.trimStart().startsWith("$$") -> {
+                    if (inMathBlock) {
+                        MathBlock(mathBuffer.toString())
+                        mathBuffer.clear()
+                    }
+                    // 单行 $$公式$$ 直接渲染
+                    val inline = line.trim().removePrefix("$$").removeSuffix("$$").trim()
+                    if (inline.isNotEmpty() && line.trim().endsWith("$$") &&
+                        line.trim().indexOf("$$") != line.trim().lastIndexOf("$$")) {
+                        MathBlock(inline)
+                    } else {
+                        inMathBlock = !inMathBlock
+                    }
+                }
+                inMathBlock -> mathBuffer.append(line).append("\n")
                 line.trimStart().startsWith("```") -> {
                     if (inCodeBlock) {
                         CodeBlock(codeBuffer.toString())
@@ -42,6 +60,22 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier) {
             }
         }
         if (inCodeBlock && codeBuffer.isNotEmpty()) CodeBlock(codeBuffer.toString())
+        if (inMathBlock && mathBuffer.isNotEmpty()) MathBlock(mathBuffer.toString())
+    }
+}
+
+/** 块级公式：等宽斜体居中显示（零依赖降级渲染） */
+@Composable
+private fun MathBlock(formula: String) {
+    Box(
+        modifier = Modifier.fillMaxWidth()
+            .background(AppColors.SurfaceVariant, RoundedCornerShape(8.dp))
+            .padding(12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(formula.trim(), fontFamily = FontFamily.Monospace,
+            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+            fontSize = 14.sp, color = AppColors.Primary)
     }
 }
 
@@ -85,7 +119,8 @@ private fun CodeBlock(code: String) {
 
 /** 解析行内标记，返回 AnnotatedString */
 private fun parseInline(text: String): AnnotatedString = buildAnnotatedString {
-    val pattern = Regex("(\\*\\*.*?\\*\\*|`.*?`|\\*.*?\\*|\\[.*?\\]\\(.*?\\))")
+    // 增加 $公式$ 匹配：以等宽斜体呈现（零依赖降级渲染，公式内容可读）
+    val pattern = Regex("(\\*\\*.*?\\*\\*|`.*?`|\\$[^$]+\\$|\\*.*?\\*|\\[.*?\\]\\(.*?\\))")
     var last = 0
     pattern.findAll(text).forEach { m ->
         append(text.substring(last, m.range.first))
@@ -98,6 +133,12 @@ private fun parseInline(text: String): AnnotatedString = buildAnnotatedString {
                 fontFamily = FontFamily.Monospace, color = AppColors.Primary,
                 background = AppColors.SurfaceVariant)) {
                 append(token.removePrefix("`").removeSuffix("`"))
+            }
+            token.startsWith("$") && token.endsWith("$") && token.length > 2 -> withStyle(SpanStyle(
+                fontFamily = FontFamily.Monospace,
+                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                color = AppColors.Primary)) {
+                append(token.trim('$'))
             }
             token.startsWith("[") -> {
                 val link = Regex("\\[(.*?)\\]\\((.*?)\\)").find(token)
