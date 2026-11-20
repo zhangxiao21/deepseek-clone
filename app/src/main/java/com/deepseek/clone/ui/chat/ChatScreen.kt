@@ -673,7 +673,15 @@ private fun InputBar(
                     )
                     Spacer(Modifier.weight(1f))
 
-                    // 官方顺序：回形针 → 发送/停止（语音改为长按输入框触发）
+                    // 语音输入：可见麦克风按钮（长按输入框也可触发）
+                    CircleButton(
+                        icon = if (voiceListening) Icons.Default.Close else Icons.Default.Mic,
+                        description = if (voiceListening) "结束语音输入" else "语音输入",
+                        onClick = { if (voiceListening) onVoiceStop() else onVoice() },
+                        filled = voiceListening,
+                        fillColor = AppColors.Error
+                    )
+                    Spacer(Modifier.width(8.dp))
                     CircleButton(
                         icon = Icons.Default.AttachFile,
                         description = "添加图片或文件",

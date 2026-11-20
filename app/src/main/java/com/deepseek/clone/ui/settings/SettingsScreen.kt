@@ -85,7 +85,6 @@ fun SettingsScreen(
     var memoryEnabled by remember { mutableStateOf(store.memoryEnabled) }
     var compressionEnabled by remember { mutableStateOf(store.compressionEnabled) }
     var cotVisible by remember { mutableStateOf(store.cotVisible) }
-    var autoReadAloud by remember { mutableStateOf(store.autoReadAloud) }
     var showMemoryDialog by remember { mutableStateOf(false) }
     var memoryFacts by remember { mutableStateOf(repository.context.memoryFacts()) }
     var rebuildingMemory by remember { mutableStateOf(false) }
@@ -153,22 +152,17 @@ fun SettingsScreen(
                 Page.MAIN -> MainPage(
                     themeLabel = ThemeMode.label(themeMode),
                     fontLabel = fontLabel(fontScale),
-                    autoReadAloud = autoReadAloud,
-                    onAutoReadAloud = {
-                        autoReadAloud = !autoReadAloud
-                        store.autoReadAloud = autoReadAloud
-                    },
                     onAccount = { page = Page.ACCOUNT },
                     onData = { page = Page.DATA },
                     onLanguage = { showLanguageDialog = true },
                     onAppearance = { page = Page.APPEARANCE },
                     onFont = { showFontDialog = true },
                     onPersonalization = { page = Page.PERSONALIZATION },
-                    onAbout = { page = Page.ABOUT },
                     onTts = { openTtsSettings(context) },
                     onUpdate = { showUpdateDialog = true },
                     onAgreement = { openUrl(context, "https://platform.deepseek.com/") },
-                    onHelp = { openUrl(context, "https://api-docs.deepseek.com/zh-cn/") }
+                    onHelp = { openUrl(context, "https://api-docs.deepseek.com/zh-cn/") },
+                    onLogout = { showLogoutDialog = true }
                 )
                 Page.ACCOUNT -> AccountPage(
                     apiKeys = apiKeys,
@@ -411,19 +405,17 @@ fun SettingsScreen(
 private fun MainPage(
     themeLabel: String,
     fontLabel: String,
-    autoReadAloud: Boolean,
-    onAutoReadAloud: () -> Unit,
     onAccount: () -> Unit,
     onData: () -> Unit,
     onLanguage: () -> Unit,
     onAppearance: () -> Unit,
     onFont: () -> Unit,
     onPersonalization: () -> Unit,
-    onAbout: () -> Unit,
     onTts: () -> Unit,
     onUpdate: () -> Unit,
     onAgreement: () -> Unit,
-    onHelp: () -> Unit
+    onHelp: () -> Unit,
+    onLogout: () -> Unit
 ) {
     CardGroup("账户", listOf(
         RowItem(Icons.Default.Person, "账号管理", onClick = onAccount),
@@ -435,20 +427,30 @@ private fun MainPage(
         RowItem(Icons.Default.TextFields, "字体大小", fontLabel, onFont),
         RowItem(Icons.Default.Edit, "个性化", onClick = onPersonalization)
     ))
+    // 官方设置页语音组只有「朗读音色」一项
     CardGroup("语音", listOf(
-        RowItem(Icons.Default.PlayArrow, "自动朗读回复",
-            if (autoReadAloud) "已开启" else "已关闭", onAutoReadAloud),
-        RowItem(Icons.Default.VolumeUp, "朗读音色", onClick = onTts),
-        RowItem(Icons.Default.Mic, "语音识别", "端侧离线（本地识别）", onClick = {})
+        RowItem(Icons.Default.VolumeUp, "朗读音色", onClick = onTts)
     ))
     CardGroup("关于", listOf(
-        RowItem(Icons.Default.Info, "检查更新", "1.3 (4)", onUpdate),
+        RowItem(Icons.Default.Info, "检查更新", "2.8.0 (297)", onUpdate),
         RowItem(Icons.Default.Description, "服务协议", onClick = onAgreement),
-        RowItem(Icons.Default.Settings, "项目说明", onClick = onAbout)
-    ))
-    CardGroup("", listOf(
         RowItem(Icons.Default.HelpOutline, "帮助与反馈", onClick = onHelp)
     ))
+    // 官方：退出登录单独一张卡片
+    CardGroup("", listOf(
+        RowItem(Icons.Default.Logout, "退出登录", onClick = onLogout)
+    ))
+    // 官方：底部备案信息
+    Text(
+        "模型名称：Deepseek Chat\n" +
+            "备案号：Beijing-DeepseekChat-202404280016\n" +
+            "浙ICP备2023025841号-3A\n" +
+            "内容由 AI 生成，请仔细甄别，并合法使用",
+        style = MaterialTheme.typography.labelSmall,
+        color = AppColors.TextTertiary,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp)
+    )
 }
 
 // ==================== 子页面 ====================
