@@ -84,7 +84,7 @@ export JAVA_HOME=/path/to/jdk-17
 | **上下文压缩** | 历史过长时把较旧轮次压成摘要随会话缓存，只回传最近若干轮原文；增量压缩、可开关 | `ContextEngine.compressInBackground()` / `prepareHistory()` |
 | 外观 | 浅色 / 深色 / 跟随系统三态切换，即时生效并持久化；**官方卡片式设置页**（账户/应用/语音/关于分组）、三档字体大小（通过 `LocalDensity.fontScale` 全局缩放）、退出登录保留偏好 | 设置 → 外观（`ThemeMode` + 动态 `AppPalette` + `SecureStore.fontScale`） |
 | 文件/图片 | **待发送区与已发送消息均显示真实缩略图 + 文件名**（本地缓存路径只存本地 UI，绝不进 API）、应用内相册选择器（一次最多 9 张多选）、「+」面板最近图片横条 + 拍照/相册/文件三宫格、相机拍照、PDF/Word/PPT 解析 | Files API `POST /files` + `messages[].content` 多模态数组 |
-| 语音 | **端侧离线语音转文字（Vosk）**：完全本地推理，不依赖系统/厂商 SpeechRecognizer（国产 ROM 上「语音识别网络异常」频发的根因已根除）；输入区**默认文字输入**，点麦克风按钮触发语音；**文字转语音**：每条 AI 回复可朗读/停止，设置页可开启「自动朗读回复」 | `SpeechHelper`（Vosk + AudioRecord）、`ReadAloudHelper`（系统 TextToSpeech） |
+| 语音 | **调用官方 ASR API 语音转文字**（与官方 chat-demo 同款）：录音编码为 16kHz 单声道 WAV，`POST /v1/tools/asr` 上传，一次返回全文；不依赖系统/厂商 SpeechRecognizer（国产 ROM「语音识别网络异常」根因已根除），识别准确率由官方服务端保证；输入区**默认文字输入**，点麦克风按钮触发语音；**文字转语音**：每条 AI 回复可朗读/停止，设置页可开启「自动朗读回复」 | `SpeechHelper`（AudioRecord + ASR API）、`ReadAloudHelper`（系统 TextToSpeech） |
 | 安全 | **多个 API Key 加密保存，设置页/登录页随时添加、编辑、删除、切换**；旧单 Key 自动迁移；鉴权失败只临时登出、不删其它 Key | `EncryptedSharedPreferences` + `SecureStore.apiKeys()` |
 
 ### 官方模型（2026-11）
@@ -214,31 +214,25 @@ export JAVA_HOME=/path/to/jdk-17
 2. **401/402/403**：App 会自动提示"API Key 无效/余额不足/无权限"并跳回登录页。
 3. **图片模型**：仅 `deepseek-flash` 系支持图片；专家模型 `deepseek-v4-pro` 不支持。
 4. **上下文长度**：开启上下文压缩时只回传最近 24 条原文 + 缓存摘要（关闭时最多 60 条）；超长会触发 API 的长度错误。记忆/压缩/摘要都是"尽力而为"，失败不影响对话。长期记忆上限 120 条，超过时保留最新事实。
-5. **语音**：DeepSeek 官方开放 API **不提供语音转文字端点**，本 App 用 **Vosk 端侧离线识别**（完全本地推理，无需联网，语音数据不出设备）。中文小模型约 42MB 需打包进 `app/src/main/assets/vosk-model-small-cn/`，见下文「端侧语音模型」一节。朗读（文字转语音）仍需系统装有中文语音包。
+5. **语音**：语音转文字沿用**官方 chat-demo 的方案**——录音编码为 WAV 后调 `POST /v1/tools/asr`（Bearer API Key 鉴权），一次返回全文；单次录音 ≤120s、≤8MiB。需要联网且 API Key 有对应权限。朗读（文字转语音）仍需系统装有中文语音包。
 6. **相册选择器**：需要 `READ_MEDIA_IMAGES`（Android 13+）/ `READ_EXTERNAL_STORAGE`（旧版）权限；网格只加载最近 300 张，单次最多选 9 张，逐张走 Files API 上传。
 6. **停止生成**：官方 API 无独立 stop 端点，App 通过取消本地收集/关闭连接实现。
 7. **Material3 版本锁定**：依赖固定 `material3:1.0.0`（云编译为离线镜像，不宜升级）。代码使用 1.0.0 的 API：`smallTopAppBarColors`、`TextFieldDefaults.outlinedTextFieldColors`、`Divider`、`Icons.Filled.*`，会话操作菜单用 `AlertDialog`（1.0.0 无 `ModalBottomSheet` 与新版 `ListItem`）。**不要单独升级 Material3**——它会连带提升 Compose runtime，破坏 Kotlin 1.7.20 + Compiler 1.3.2 的严格配对。同理 `security-crypto` 固定 1.0.0，用 `MasterKeys` 旧签名而非 1.1+ 的 `MasterKey`。
 
 ---
 
-## 端侧语音模型（Vosk）
+## 语音识别（官方 ASR API）
 
-语音转文字用 [Vosk](https://alphacephei.com/vosk/) 端侧识别，中文小模型需随 App 打包：
+语音转文字与官方 chat-demo 完全一致（见 `chat-demo/src/services/api/speech.ts`）：
 
-```bash
-# 1. 下载中文小模型（约 42MB）
-wget https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip
-unzip vosk-model-small-cn-0.22.zip
-
-# 2. 放入 assets，最终结构：
-#   app/src/main/assets/vosk-model-small-cn/{am,conf,graph,ivector,...}
-mv vosk-model-small-cn-0.22 app/src/main/assets/vosk-model-small-cn
+```
+录音(16kHz/单声道/16bit PCM) → 编码 WAV → POST /v1/tools/asr (multipart) → {"text": "..."}
 ```
 
-- 依赖：`com.alphacephei:vosk-android:0.3.47` + `net.java.dev.jna:jna:5.8.0@aar`（Maven Central）。
-- 首次运行会把模型从 assets 递归复制到 `filesDir/vosk-model-small-cn/`，之后直接复用。
-- 若仓库有体积限制，可将模型目录加入 `.gitignore`，改由云流水线在编译前下载。
-- 采样率 16kHz、单声道、PCM16；简单 RMS 静音检测，约 1.2s 无语音自动结束。
+- 鉴权：`Authorization: Bearer <API Key>`（由 `AuthInterceptor` 统一注入，与聊天共用同一个 Key）。
+- 限制：单次 ≤120 秒、≤8 MiB；说话后连续静音约 1.5 秒自动结束并转写。
+- 无需任何本地模型（已移除 Vosk 与 66MB 模型），APK 体积显著减小，准确率由官方服务端保证。
+- 语音数据会随请求发送到 API 服务，不上传第三方。
 
 ---
 

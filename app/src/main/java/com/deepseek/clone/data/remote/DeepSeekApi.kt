@@ -33,4 +33,9 @@ interface DeepSeekApi {
         @Part("purpose") purpose: RequestBody,
         @Part file: MultipartBody.Part
     ): Response<FileObject>
+
+    /** 官方 chat-demo 同款 ASR：multipart 上传 WAV/Ogg，一次返回 {"text": "..."}。同步调用（工作线程内）。 */
+    @Multipart
+    @POST("v1/tools/asr")
+    fun transcribe(@Part file: MultipartBody.Part): Response<AsrResponse>
 }

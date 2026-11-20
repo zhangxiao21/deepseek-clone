@@ -111,10 +111,6 @@ dependencies {
     // Image loading
     implementation 'io.coil-kt:coil-compose:2.2.2'
 
-    // 端侧离线语音识别（Vosk）：本地推理，摆脱国产 ROM 系统语音服务不可用的问题
-    implementation 'com.alphacephei:vosk-android:0.3.47'
-    implementation 'net.java.dev.jna:jna:5.8.0@aar'
-
     // Markdown 渲染：自研轻量实现（ui/chat/MarkdownText.kt），零外部依赖
 
     // Tests

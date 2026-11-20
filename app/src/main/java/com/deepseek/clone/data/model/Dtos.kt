@@ -146,3 +146,8 @@ data class FileObject(
     val bytes: Long? = null,
     val status: String? = null
 )
+
+// ==================== Tools API：ASR / TTS（对齐官方 chat-demo） ====================
+
+/** POST /v1/tools/asr 的响应：一次返回全文 */
+data class AsrResponse(val text: String)
