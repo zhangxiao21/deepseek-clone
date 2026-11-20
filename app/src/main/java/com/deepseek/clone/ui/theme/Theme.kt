@@ -58,51 +58,55 @@ data class AppPalette(
     val success: Color,
     val onPrimary: Color,
     val onBubbleUser: Color,
-    val bubbleUserBorder: Color
+    val bubbleUserBorder: Color,
+    val inputBackground: Color
 )
 
+// 色值取自官方 chat-demo 源码 src/app/theme.css（blue-500/450、neutral-bluish 系列）
 private val LightPalette = AppPalette(
-    primary = Color(0xFF4D6BFE),
-    primaryDark = Color(0xFF3B57E0),
-    primaryLight = Color(0xFFEBEFFF),
-    background = Color(0xFFFFFFFF),
-    surface = Color(0xFFF5F6F8),
-    surfaceVariant = Color(0xFFECEEF2),
-    bubbleUser = Color(0xFFEBEFFF),
-    bubbleAI = Color(0xFFF5F6F8),
-    textPrimary = Color(0xFF1A1B1E),
-    textSecondary = Color(0xFF6A6B70),
-    textTertiary = Color(0xFF9A9BA0),
-    reasoningBg = Color(0xFFF7F8FA),
-    reasoningText = Color(0xFF6E6F74),
-    divider = Color(0xFFE4E6EB),
-    error = Color(0xFFE5484D),
-    success = Color(0xFF2EBD85),
+    primary = Color(0xFF3964FE),          // blue-500
+    primaryDark = Color(0xFF5686FE),      // blue-450 (hover)
+    primaryLight = Color(0xFFEDF3FE),     // blue-50（胶囊激活底 / 用户气泡）
+    background = Color(0xFFFFFFFF),       // neutral-bluish-00
+    surface = Color(0xFFF9FAFB),          // neutral-bluish-50
+    surfaceVariant = Color(0xFFF1F3F5),   // neutral-bluish-60
+    bubbleUser = Color(0xFFEDF3FE),       // blue-50
+    bubbleAI = Color(0xFFF9FAFB),
+    textPrimary = Color(0xFF0F1115),      // neutral-bluish-1000
+    textSecondary = Color(0xFF61666B),    // neutral-bluish-700
+    textTertiary = Color(0xFF81858C),     // neutral-bluish-600
+    reasoningBg = Color(0xFFF9FAFB),
+    reasoningText = Color(0xFF61666B),
+    divider = Color(0xFF1A1A1A).copy(alpha = 0.10f), // rgba(0,0,0,0.1)
+    error = Color(0xFFEC1313),            // red-600
+    success = Color(0xFF22C55E),          // green-500
     onPrimary = Color(0xFFFFFFFF),
-    onBubbleUser = Color(0xFF1A1B1E),
-    bubbleUserBorder = Color(0xFFD6DCFF)
+    onBubbleUser = Color(0xFF0F1115),
+    bubbleUserBorder = Color(0xFFB7C8FE),  // blue-300
+    inputBackground = Color(0xFFFFFFFF)    // specific-input-major = neutral-bluish-00
 )
 
 private val DarkPalette = AppPalette(
-    primary = Color(0xFF4D6BFE),
-    primaryDark = Color(0xFF3B57E0),
-    primaryLight = Color(0xFF1E2240),
-    background = Color(0xFF0E0E10),
-    surface = Color(0xFF1A1B1E),
+    primary = Color(0xFF5686FE),          // blue-450
+    primaryDark = Color(0xFF3964FE),      // blue-500
+    primaryLight = Color(0xFF283848),     // deep blue tint (blue-900 近似)
+    background = Color(0xFF151517),       // neutral-bluish-950
+    surface = Color(0xFF2C2C2E),          // neutral-bluish-850
     surfaceVariant = Color(0xFF232428),
-    bubbleUser = Color(0xFF1E2240),
-    bubbleAI = Color(0xFF16171A),
-    textPrimary = Color(0xFFECECEC),
-    textSecondary = Color(0xFF9A9BA0),
-    textTertiary = Color(0xFF6A6B70),
-    reasoningBg = Color(0xFF16171A),
-    reasoningText = Color(0xFF8A8B90),
-    divider = Color(0xFF2E2F33),
-    error = Color(0xFFE5484D),
-    success = Color(0xFF2EBD85),
+    bubbleUser = Color(0xFF2C2C2E),       // specific-bubble = neutral-bluish-850
+    bubbleAI = Color(0xFF1B1B1C),
+    textPrimary = Color(0xFFF9FAFB),      // neutral-bluish-50
+    textSecondary = Color(0xFFCFCFD2),    // neutral-bluish-300
+    textTertiary = Color(0xFFADB2B8),     // neutral-bluish-400
+    reasoningBg = Color(0xFF1B1B1C),
+    reasoningText = Color(0xFFADB2B8),
+    divider = Color(0xFFFFFFFF).copy(alpha = 0.12f), // rgba(255,255,255,0.12)
+    error = Color(0xFFF25A5A),            // red-400
+    success = Color(0xFF4ED17E),          // green-400
     onPrimary = Color(0xFFFFFFFF),
-    onBubbleUser = Color(0xFFECECEC),
-    bubbleUserBorder = Color(0xFF2A3360)
+    onBubbleUser = Color(0xFFF9FAFB),
+    bubbleUserBorder = Color(0xFF4864B2),  // blue-600
+    inputBackground = Color(0xFF2C2C2E)    // specific-input-major = neutral-bluish-850
 )
 
 /**
@@ -141,39 +145,40 @@ object AppColors {
     val OnPrimary: Color get() = palette.value.onPrimary
     val OnBubbleUser: Color get() = palette.value.onBubbleUser
     val BubbleUserBorder: Color get() = palette.value.bubbleUserBorder
+    val InputBackground: Color get() = palette.value.inputBackground
 }
 
 // 直接写字面量，避免顶层 val 初始化时绑定到某个固定调色板
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF4D6BFE),
+    primary = Color(0xFF3964FE),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFEBEFFF),
-    onPrimaryContainer = Color(0xFF3B57E0),
-    secondary = Color(0xFF4D6BFE),
+    primaryContainer = Color(0xFFEDF3FE),
+    onPrimaryContainer = Color(0xFF3964FE),
+    secondary = Color(0xFF3964FE),
     background = Color(0xFFFFFFFF),
-    onBackground = Color(0xFF1A1B1E),
+    onBackground = Color(0xFF0F1115),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF1A1B1E),
-    surfaceVariant = Color(0xFFF5F6F8),
-    onSurfaceVariant = Color(0xFF6A6B70),
+    onSurface = Color(0xFF0F1115),
+    surfaceVariant = Color(0xFFF9FAFB),
+    onSurfaceVariant = Color(0xFF61666B),
     outline = Color(0xFFE4E6EB),
-    error = Color(0xFFE5484D)
+    error = Color(0xFFEC1313)
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF4D6BFE),
+    primary = Color(0xFF5686FE),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFF1E2240),
-    onPrimaryContainer = Color(0xFFC5CDFF),
-    secondary = Color(0xFF4D6BFE),
-    background = Color(0xFF0E0E10),
-    onBackground = Color(0xFFECECEC),
-    surface = Color(0xFF1A1B1E),
-    onSurface = Color(0xFFECECEC),
+    primaryContainer = Color(0xFF283848),
+    onPrimaryContainer = Color(0xFFB7C8FE),
+    secondary = Color(0xFF5686FE),
+    background = Color(0xFF151517),
+    onBackground = Color(0xFFF9FAFB),
+    surface = Color(0xFF2C2C2E),
+    onSurface = Color(0xFFF9FAFB),
     surfaceVariant = Color(0xFF232428),
-    onSurfaceVariant = Color(0xFF9A9BA0),
+    onSurfaceVariant = Color(0xFFCFCFD2),
     outline = Color(0xFF2E2F33),
-    error = Color(0xFFE5484D)
+    error = Color(0xFFF25A5A)
 )
 
 @Composable

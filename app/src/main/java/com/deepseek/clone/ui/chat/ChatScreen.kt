@@ -247,6 +247,16 @@ fun ChatScreen(
                 onVoiceStop = onVoiceStop,
                 voiceListening = voiceListening
             )
+            // 官方 chat-demo：欢迎页输入框下方免责声明
+            if (messages.isEmpty()) {
+                Text(
+                    "内容由 AI 生成，请仔细甄别",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AppColors.TextTertiary,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
         }
     }
 
@@ -274,14 +284,13 @@ fun ChatScreen(
 @Composable
 private fun EmptyChatHint() {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 110.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 90.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        WhaleLogo(modifier = Modifier.size(56.dp))
-        Spacer(Modifier.height(22.dp))
-        Text("你好，我能帮什么忙吗？",
+        // 官方 chat-demo 欢迎页：居中问候语（移动端 20px/500），无大 Logo
+        Text("今天有什么可以帮到你？",
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.Medium,
             color = AppColors.TextPrimary)
     }
 }
@@ -638,9 +647,9 @@ private fun InputBar(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(26.dp))
-                    .background(AppColors.Surface)
-                    .border(BorderStroke(1.dp, AppColors.Divider), RoundedCornerShape(26.dp))
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(AppColors.InputBackground)
+                    .border(BorderStroke(1.dp, AppColors.Divider), RoundedCornerShape(24.dp))
                     .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
                 // 默认即为文字输入框；语音输入改为点击麦克风按钮触发
@@ -649,14 +658,15 @@ private fun InputBar(
                     onValueChange = onInputChange,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp, max = 110.dp),
                     placeholder = {
-                        Text("发消息…", color = AppColors.TextSecondary,
+                        Text("请输入消息", color = AppColors.TextTertiary,
                             style = MaterialTheme.typography.bodyMedium)
                     },
                     maxLines = 4,
                     shape = RoundedCornerShape(18.dp),
                     colors = TextFieldDefaults.outlinedTextFieldColors(
                         focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent
+                        unfocusedBorderColor = Color.Transparent,
+                        cursorColor = AppColors.Primary
                     )
                 )
                 Spacer(Modifier.height(4.dp))
@@ -676,27 +686,28 @@ private fun InputBar(
                     )
                     Spacer(Modifier.weight(1f))
 
-                    if (isGenerating) {
-                        CircleButton(Icons.Default.Stop, "停止生成", onStop, filled = true,
-                            fillColor = AppColors.Error)
-                        Spacer(Modifier.width(8.dp))
-                    } else if (canSend) {
-                        CircleButton(Icons.Default.ArrowUpward, "发送", onSend, filled = true)
-                        Spacer(Modifier.width(8.dp))
-                    }
-
-                    CircleButton(
-                        icon = if (showAttachPanel) Icons.Default.Close else Icons.Default.Add,
-                        description = if (showAttachPanel) "收起附件面板" else "添加图片或文件",
-                        onClick = { showAttachPanel = !showAttachPanel }
-                    )
-                    Spacer(Modifier.width(8.dp))
+                    // 官方顺序：语音 → 附件 → 发送/停止
                     CircleButton(
                         icon = if (voiceListening) Icons.Default.Close else Icons.Default.Mic,
                         description = if (voiceListening) "结束语音输入" else "语音输入",
                         onClick = { if (voiceListening) onVoiceStop() else onVoice() },
                         filled = voiceListening
                     )
+                    Spacer(Modifier.width(6.dp))
+                    CircleButton(
+                        icon = Icons.Default.AttachFile,
+                        description = "添加图片或文件",
+                        onClick = { showAttachPanel = !showAttachPanel }
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    if (isGenerating) {
+                        CircleButton(Icons.Default.Stop, "停止生成", onStop, filled = true,
+                            fillColor = AppColors.Error)
+                    } else {
+                        // 官方：发送按钮常驻，不可发送时呈禁用态（半透明）
+                        CircleButton(Icons.Default.Send, "发送", onSend,
+                            filled = true, enabled = canSend)
+                    }
                 }
             }
 
@@ -743,20 +754,22 @@ private fun PillChip(
 ) {
     val bg = if (selected) AppColors.PrimaryLight else Color.Transparent
     val fg = if (selected) AppColors.Primary else AppColors.TextPrimary
-    val shape = RoundedCornerShape(50)
+    val borderColor = if (selected) AppColors.BubbleUserBorder else AppColors.Divider
+    val shape = RoundedCornerShape(18.dp)
     Row(
         modifier = Modifier
+            .height(34.dp)
             .clip(shape)
             .background(bg)
-            .border(BorderStroke(1.dp, if (selected) AppColors.Primary else AppColors.Divider), shape)
+            .border(BorderStroke(1.dp, borderColor), shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = fg, modifier = Modifier.size(15.dp))
-        Spacer(Modifier.width(5.dp))
+        Icon(icon, null, tint = fg, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(4.dp))
         Text(label, style = MaterialTheme.typography.labelLarge,
-            color = fg, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+            color = fg, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -766,23 +779,25 @@ private fun CircleButton(
     description: String,
     onClick: () -> Unit,
     filled: Boolean = false,
-    fillColor: Color = AppColors.Primary
+    fillColor: Color = AppColors.Primary,
+    enabled: Boolean = true
 ) {
+    val alpha = if (enabled) 1f else 0.4f
     Box(
         modifier = Modifier
             .size(34.dp)
             .clip(androidx.compose.foundation.shape.CircleShape)
-            .background(if (filled) fillColor else Color.Transparent)
+            .background((if (filled) fillColor else Color.Transparent).copy(alpha = alpha))
             .border(
-                BorderStroke(1.dp, if (filled) Color.Transparent else AppColors.Divider),
+                BorderStroke(1.dp, (if (filled) Color.Transparent else AppColors.Divider).copy(alpha = alpha)),
                 androidx.compose.foundation.shape.CircleShape
             )
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, description,
-            tint = if (filled) AppColors.OnPrimary else AppColors.TextPrimary,
-            modifier = Modifier.size(19.dp))
+            tint = (if (filled) AppColors.OnPrimary else AppColors.TextPrimary).copy(alpha = alpha),
+            modifier = Modifier.size(18.dp))
     }
 }
 
