@@ -834,7 +834,7 @@ private fun AttachmentThumb(path: String, name: String, modifier: Modifier = Mod
             modifier = modifier.clip(shape).background(AppColors.SurfaceVariant),
             contentAlignment = Alignment.Center
         ) {
-            Image(
+            androidx.compose.foundation.Image(
                 painter = painterResource(typeIcon),
                 contentDescription = name,
                 modifier = Modifier.size(28.dp),
