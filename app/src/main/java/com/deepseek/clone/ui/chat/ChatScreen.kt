@@ -28,8 +28,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -42,7 +40,6 @@ import com.deepseek.clone.data.model.ServerToolEvent
 import com.deepseek.clone.data.model.UrlCitation
 import com.deepseek.clone.ui.picker.RecentImagesStrip
 import com.deepseek.clone.ui.theme.AppColors
-import com.deepseek.clone.ui.theme.WhaleLogo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,62 +109,62 @@ fun ChatScreen(
             TopAppBar(
                 modifier = Modifier.height(60.dp),
                 title = {
-                    // 官方顶栏：中央为鲸鱼图标 + DeepSeek 字标；进入对话后点击可切换模型 / 重命名
-                    Box {
-                        Column(
-                            modifier = Modifier
-                                .clickable { if (messages.isNotEmpty()) showModelMenu = true },
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            if (messages.isEmpty()) {
-                                BrandWordmark()
-                            } else {
+                    // chat-demo 手机布局：欢迎页顶栏空白，会话页中央显示标题（点击切换模型/重命名）
+                    if (messages.isNotEmpty()) {
+                        Box {
+                            Column(
+                                modifier = Modifier.clickable { showModelMenu = true },
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
                                 Text(title, style = MaterialTheme.typography.titleMedium,
                                     maxLines = 1, fontWeight = FontWeight.SemiBold)
                                 Text(ModelOption.find(model).label,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = AppColors.TextSecondary)
                             }
-                        }
-                        DropdownMenu(expanded = showModelMenu,
-                            onDismissRequest = { showModelMenu = false }) {
-                            ModelOption.ALL.forEach { option ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(option.label)
-                                            Text(option.desc,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = AppColors.TextSecondary)
+                            DropdownMenu(expanded = showModelMenu,
+                                onDismissRequest = { showModelMenu = false }) {
+                                ModelOption.ALL.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(option.label)
+                                                Text(option.desc,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = AppColors.TextSecondary)
+                                            }
+                                        },
+                                        onClick = {
+                                            viewModel.setModel(option.id)
+                                            showModelMenu = false
+                                        },
+                                        leadingIcon = {
+                                            if (model == option.id) Icon(Icons.Default.Check, null,
+                                                tint = AppColors.Primary)
                                         }
-                                    },
-                                    onClick = {
-                                        viewModel.setModel(option.id)
-                                        showModelMenu = false
-                                    },
-                                    leadingIcon = {
-                                        if (model == option.id) Icon(Icons.Default.Check, null,
-                                            tint = AppColors.Primary)
-                                    }
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("重命名对话") },
+                                    onClick = { showModelMenu = false; showRename = true }
                                 )
                             }
-                            DropdownMenuItem(
-                                text = { Text("重命名对话") },
-                                onClick = { showModelMenu = false; showRename = true }
-                            )
                         }
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.Menu, contentDescription = "会话列表",
-                            tint = AppColors.TextSecondary)
+                            tint = AppColors.TextPrimary)
                     }
                 },
                 actions = {
-                    IconButton(onClick = onNewChat) {
-                        Icon(Icons.Default.Add, contentDescription = "新对话",
-                            tint = AppColors.TextSecondary)
+                    // chat-demo：会话页顶栏右侧才有「新建对话」
+                    if (messages.isNotEmpty()) {
+                        IconButton(onClick = onNewChat) {
+                            Icon(Icons.Default.Add, contentDescription = "新对话",
+                                tint = AppColors.TextPrimary)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.smallTopAppBarColors(containerColor = AppColors.Background)
@@ -291,28 +288,6 @@ private fun EmptyChatHint() {
             color = AppColors.TextPrimary)
     }
 }
-
-/** 原版品牌字标：鲸鱼图标 + "DeepSeek"，其中 "Seek" 染品牌蓝 */
-@Composable
-private fun BrandWordmark() {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        WhaleLogo(modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(
-            buildAnnotatedString {
-                append("Deep")
-                pushStyle(SpanStyle(color = AppColors.Primary, fontWeight = FontWeight.Bold))
-                append("Seek")
-                pop()
-            },
-            style = MaterialTheme.typography.titleMedium
-        )
-    }
-}
-
-/**
- * 扁平化鲸鱼标志见 ui/theme/WhaleLogo.kt（共享组件 WhaleLogo）。
- */
 
 @Composable
 private fun MessageBubble(

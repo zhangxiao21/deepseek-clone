@@ -77,11 +77,10 @@ class SpeechHelper(private val context: Context) {
         worker = Thread({ recordAndTranscribe() }, "asr-record").apply { start() }
     }
 
-    /** 用户主动结束：停止录音，进入转写 */
+    /** 用户主动结束：停止录音，让循环自然退出后继续转写（切勿 interrupt，否则 OkHttp 调用会被中断） */
     fun stopListening() {
         running.set(false)
         runCatching { audioRecord?.stop() }
-        worker?.interrupt()
     }
 
     fun cancelListening() {

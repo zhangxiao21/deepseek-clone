@@ -9,11 +9,17 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -65,14 +71,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val services = (application as DeepSeekApp).services
         speechHelper = SpeechHelper(this)
-        // 启动即后台预加载端侧语音模型，首次点击麦克风时已就绪
-        speechHelper.initModel { ready ->
-            if (!ready) {
-                runOnUiThread {
-                    Toast.makeText(this, "语音模型加载失败，请检查后重试", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
+        // ASR 走官方 API，无需预加载本地模型
 
         val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
@@ -131,21 +130,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startListening(callback: (String) -> Unit) {
-        if (!speechHelper.isModelReady()) {
-            // 模型还没就绪（可能刚启动首次解压），异步初始化后再开始
-            Toast.makeText(this, "语音模型加载中…", Toast.LENGTH_SHORT).show()
-            speechHelper.initModel { ready ->
-                if (ready) {
-                    runOnUiThread { beginRecognize(callback) }
-                } else {
-                    runOnUiThread {
-                        Toast.makeText(this, "语音模型加载失败，请重试", Toast.LENGTH_SHORT).show()
-                        voiceListening = false
-                    }
-                }
-            }
-            return
-        }
+        // API 方案：无需本地模型，直接开始录音
         beginRecognize(callback)
     }
 
@@ -286,6 +271,9 @@ private fun AppNavigation(
     var chatSessionId by remember { mutableStateOf<String?>(null) }
     var chatTitle by remember { mutableStateOf("新对话") }
     var showPhotoPicker by remember { mutableStateOf(false) }
+    // chat-demo 手机布局：会话列表是左侧抽屉，不是独立页面
+    var drawerOpen by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = drawerOpen) { drawerOpen = false }
     val chatViewModel = remember { ChatViewModel(application) }
 
     LaunchedEffect(chatViewModel) { onViewModelReady(chatViewModel) }
@@ -309,6 +297,7 @@ private fun AppNavigation(
             loggedIn = false
             chatSessionId = null
             screen = Screen.Chat
+            drawerOpen = false
         }
     }
 
@@ -317,6 +306,7 @@ private fun AppNavigation(
         chatSessionId = null
         chatTitle = "新对话"
         screen = Screen.Chat
+        drawerOpen = false
     }
 
     if (!loggedIn) {
@@ -333,32 +323,33 @@ private fun AppNavigation(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // 主区域：始终是对话页（欢迎页或会话页），与 chat-demo 一致
         when (screen) {
-            Screen.Sessions -> {
-                SessionsScreen(
+            Screen.Settings -> {
+                SettingsScreen(
                     store = store,
+                    zipManager = zipManager,
                     repository = repository,
-                    onOpenChat = { id, title ->
-                        chatSessionId = id
-                        chatTitle = title
+                    themeMode = themeMode,
+                    fontScale = fontScale,
+                    onFontScaleChange = onFontScaleChange,
+                    onThemeModeChange = onThemeModeChange,
+                    onBack = { screen = Screen.Chat },
+                    onLogout = {
+                        repository.clearApiKey()
+                        loggedIn = false
+                        chatSessionId = null
                         screen = Screen.Chat
-                    },
-                    onNewChat = { openNewChat() },
-                    onSettings = { screen = Screen.Settings },
-                    onSessionsDeleted = { ids ->
-                        if (chatSessionId != null && ids.contains(chatSessionId)) {
-                            chatSessionId = null
-                            chatTitle = "新对话"
-                        }
+                        drawerOpen = false
                     }
                 )
             }
-            Screen.Chat -> {
+            else -> {
                 ChatScreen(
                     sessionId = chatSessionId,
                     sessionTitle = chatTitle,
                     viewModel = chatViewModel,
-                    onBack = { screen = Screen.Sessions },
+                    onBack = { drawerOpen = true },   // 顶栏菜单 → 打开会话抽屉
                     onNewChat = { openNewChat() },
                     onAttachFile = onAttachFile,
                     onPickImages = { showPhotoPicker = true },
@@ -369,23 +360,45 @@ private fun AppNavigation(
                     voiceListening = voiceListening
                 )
             }
-            Screen.Settings -> {
-                SettingsScreen(
-                    store = store,
-                    zipManager = zipManager,
-                    repository = repository,
-                    themeMode = themeMode,
-                    fontScale = fontScale,
-                    onFontScaleChange = onFontScaleChange,
-                    onThemeModeChange = onThemeModeChange,
-                    onBack = { screen = Screen.Sessions },
-                    onLogout = {
-                        repository.clearApiKey()
-                        loggedIn = false
-                        chatSessionId = null
-                        screen = Screen.Chat
-                    }
+        }
+
+        // chat-demo 手机抽屉：左侧会话列表 + 半透明遮罩（同层覆盖，无独立窗口）
+        if (drawerOpen) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                // 遮罩：点击关闭
+                Box(
+                    modifier = Modifier.fillMaxSize()
+                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.4f))
+                        .clickable { drawerOpen = false }
                 )
+                // 抽屉：宽 300dp，最多占屏宽 calc(100vw - 48dp)
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = 340.dp)
+                        .fillMaxWidth(0.85f)
+                        .fillMaxHeight()
+                        .align(Alignment.TopStart)
+                        .background(AppColors.Background)
+                ) {
+                    SessionsScreen(
+                        store = store,
+                        repository = repository,
+                        onOpenChat = { id, title ->
+                            chatSessionId = id
+                            chatTitle = title
+                            drawerOpen = false
+                            screen = Screen.Chat
+                        },
+                        onNewChat = { openNewChat(); drawerOpen = false },
+                        onSettings = { screen = Screen.Settings; drawerOpen = false },
+                        onSessionsDeleted = { ids ->
+                            if (chatSessionId != null && ids.contains(chatSessionId)) {
+                                chatSessionId = null
+                                chatTitle = "新对话"
+                            }
+                        }
+                    )
+                }
             }
         }
 
